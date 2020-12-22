@@ -40,7 +40,7 @@ namespace ArchiSteamFarm {
 			SaleEventTimer = new Timer(
 				ExploreDiscoveryQueue,
 				null,
-				TimeSpan.FromHours(1.1) + TimeSpan.FromSeconds(ASF.LoadBalancingDelay * Bot.Bots?.Count ?? 0), // Delay
+				TimeSpan.FromHours(0.05) + TimeSpan.FromSeconds(ASF.LoadBalancingDelay * Bot.Bots?.Count ?? 0), // Delay
 				TimeSpan.FromHours(8.1) // Period
 			);
 		}
