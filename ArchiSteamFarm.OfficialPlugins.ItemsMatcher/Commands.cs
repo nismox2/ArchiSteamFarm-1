@@ -80,12 +80,20 @@ internal static class Commands {
 			return access > EAccess.None ? bot.Commands.FormatBotResponse(Strings.ErrorAccessDenied) : null;
 		}
 
+		if (!bot.IsConnectedAndLoggedOn) {
+			return bot.Commands.FormatBotResponse(Strings.BotNotConnected);
+		}
+
+		if (bot.BotConfig.TradingPreferences.HasFlag(BotConfig.ETradingPreferences.MatchEverything)) {
+			return bot.Commands.FormatBotResponse(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, nameof(BotConfig.ETradingPreferences.MatchEverything)));
+		}
+
 		if ((ASF.GlobalConfig?.LicenseID == null) || (ASF.GlobalConfig.LicenseID == Guid.Empty)) {
 			return bot.Commands.FormatBotResponse(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, nameof(ASF.GlobalConfig.LicenseID)));
 		}
 
-		if (!bot.BotConfig.TradingPreferences.HasFlag(BotConfig.ETradingPreferences.MatchActively) || !ItemsMatcherPlugin.RemoteCommunications.TryGetValue(bot, out RemoteCommunication? remoteCommunication)) {
-			return bot.Commands.FormatBotResponse(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, nameof(BotConfig.ETradingPreferences.MatchActively)));
+		if (!ItemsMatcherPlugin.RemoteCommunications.TryGetValue(bot, out RemoteCommunication? remoteCommunication)) {
+			return bot.Commands.FormatBotResponse(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, nameof(remoteCommunication)));
 		}
 
 		remoteCommunication.TriggerMatchActivelyEarlier();
