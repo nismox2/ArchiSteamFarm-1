@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2023 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2024 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,8 +24,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using AngleSharp;
 using AngleSharp.Dom;
+using AngleSharp.Html.Dom;
+using AngleSharp.Html.Parser;
 using JetBrains.Annotations;
 
 namespace ArchiSteamFarm.Web.Responses;
@@ -44,12 +47,16 @@ public sealed class HtmlDocumentResponse : BasicResponse, IDisposable {
 	public void Dispose() => Content?.Dispose();
 
 	[PublicAPI]
-	public static async Task<HtmlDocumentResponse?> Create(StreamResponse streamResponse, CancellationToken cancellationToken = default) {
+	public static async Task<HtmlDocumentResponse> Create(StreamResponse streamResponse, CancellationToken cancellationToken = default) {
 		ArgumentNullException.ThrowIfNull(streamResponse);
 
-		IBrowsingContext context = BrowsingContext.New();
+		if (streamResponse.Content == null) {
+			throw new InvalidOperationException(nameof(streamResponse.Content));
+		}
 
-		IDocument document = await context.OpenAsync(request => request.Content(streamResponse.Content, true), cancellationToken).ConfigureAwait(false);
+		HtmlParser htmlParser = new();
+
+		IHtmlDocument document = await htmlParser.ParseDocumentAsync(streamResponse.Content, cancellationToken).ConfigureAwait(false);
 
 		return new HtmlDocumentResponse(streamResponse, document);
 	}

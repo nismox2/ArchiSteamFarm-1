@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2023 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2024 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,14 +26,18 @@ using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
 using System.Composition;
 using System.Globalization;
 using System.Linq;
 using System.Net;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using ArchiSteamFarm.Core;
 using ArchiSteamFarm.Helpers;
+using ArchiSteamFarm.Helpers.Json;
 using ArchiSteamFarm.OfficialPlugins.SteamTokenDumper.Data;
 using ArchiSteamFarm.OfficialPlugins.SteamTokenDumper.Localization;
 using ArchiSteamFarm.Plugins;
@@ -41,8 +47,6 @@ using ArchiSteamFarm.Steam.Interaction;
 using ArchiSteamFarm.Storage;
 using ArchiSteamFarm.Web;
 using ArchiSteamFarm.Web.Responses;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using SteamKit2;
 
 namespace ArchiSteamFarm.OfficialPlugins.SteamTokenDumper;
@@ -51,7 +55,6 @@ namespace ArchiSteamFarm.OfficialPlugins.SteamTokenDumper;
 internal sealed class SteamTokenDumperPlugin : OfficialPlugin, IASF, IBot, IBotCommand2, IBotSteamClient, ISteamPICSChanges {
 	private const ushort DepotsRateLimitingDelay = 500;
 
-	[JsonProperty]
 	internal static SteamTokenDumperConfig? Config { get; private set; }
 
 	private static readonly ConcurrentDictionary<Bot, IDisposable> BotSubscriptions = new();
@@ -62,15 +65,17 @@ internal sealed class SteamTokenDumperPlugin : OfficialPlugin, IASF, IBot, IBotC
 	private static GlobalCache? GlobalCache;
 	private static DateTimeOffset LastUploadAt = DateTimeOffset.MinValue;
 
-	[JsonProperty]
+	[JsonInclude]
+	[Required]
 	public override string Name => nameof(SteamTokenDumperPlugin);
 
-	[JsonProperty]
+	[JsonInclude]
+	[Required]
 	public override Version Version => typeof(SteamTokenDumperPlugin).Assembly.GetName().Version ?? throw new InvalidOperationException(nameof(Version));
 
 	public Task<uint> GetPreferredChangeNumberToStartFrom() => Task.FromResult(GlobalCache?.LastChangeNumber ?? 0);
 
-	public async Task OnASFInit(IReadOnlyDictionary<string, JToken>? additionalConfigProperties = null) {
+	public async Task OnASFInit(IReadOnlyDictionary<string, JsonElement>? additionalConfigProperties = null) {
 		if (!SharedInfo.HasValidToken) {
 			ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.PluginDisabledMissingBuildToken, nameof(SteamTokenDumperPlugin)));
 
@@ -81,15 +86,19 @@ internal sealed class SteamTokenDumperPlugin : OfficialPlugin, IASF, IBot, IBotC
 		SteamTokenDumperConfig? config = null;
 
 		if (additionalConfigProperties != null) {
-			foreach ((string configProperty, JToken configValue) in additionalConfigProperties) {
+			foreach ((string configProperty, JsonElement configValue) in additionalConfigProperties) {
 				try {
 					switch (configProperty) {
 						case nameof(GlobalConfigExtension.SteamTokenDumperPlugin):
-							config = configValue.ToObject<SteamTokenDumperConfig>();
+							config = configValue.ToJsonObject<SteamTokenDumperConfig>();
 
 							break;
-						case nameof(GlobalConfigExtension.SteamTokenDumperPluginEnabled):
-							isEnabled = configValue.Value<bool>();
+						case nameof(GlobalConfigExtension.SteamTokenDumperPluginEnabled) when configValue.ValueKind == JsonValueKind.False:
+							isEnabled = false;
+
+							break;
+						case nameof(GlobalConfigExtension.SteamTokenDumperPluginEnabled) when configValue.ValueKind == JsonValueKind.True:
+							isEnabled = true;
 
 							break;
 					}
@@ -289,14 +298,26 @@ internal sealed class SteamTokenDumperPlugin : OfficialPlugin, IASF, IBot, IBotC
 			return;
 		}
 
-		HashSet<uint> packageIDs = callback.LicenseList.Where(static license => !Config.SecretPackageIDs.Contains(license.PackageID) && ((license.PaymentMethod != EPaymentMethod.AutoGrant) || !Config.SkipAutoGrantPackages)).Select(static license => license.PackageID).ToHashSet();
+		// Schedule a refresh in a while from now
+		if (!BotSynchronizations.TryGetValue(bot, out (SemaphoreSlim RefreshSemaphore, Timer RefreshTimer) synchronization)) {
+			return;
+		}
 
-		await Refresh(bot, packageIDs).ConfigureAwait(false);
+		if (!await synchronization.RefreshSemaphore.WaitAsync(0).ConfigureAwait(false)) {
+			// Another refresh is in progress, skip the refresh for now
+			return;
+		}
+
+		try {
+			synchronization.RefreshTimer.Change(TimeSpan.FromMinutes(1), TimeSpan.FromHours(SharedInfo.MaximumHoursBetweenRefresh));
+		} finally {
+			synchronization.RefreshSemaphore.Release();
+		}
 	}
 
 	private static async void OnSubmissionTimer(object? state = null) => await SubmitData().ConfigureAwait(false);
 
-	private static async Task Refresh(Bot bot, IReadOnlyCollection<uint>? packageIDs = null) {
+	private static async Task Refresh(Bot bot) {
 		ArgumentNullException.ThrowIfNull(bot);
 
 		if (GlobalCache == null) {
@@ -322,7 +343,7 @@ internal sealed class SteamTokenDumperPlugin : OfficialPlugin, IASF, IBot, IBotC
 				return;
 			}
 
-			packageIDs ??= bot.OwnedPackageIDs.Where(static package => (Config?.SecretPackageIDs.Contains(package.Key) != true) && ((package.Value.PaymentMethod != EPaymentMethod.AutoGrant) || (Config?.SkipAutoGrantPackages == false))).Select(static package => package.Key).ToHashSet();
+			HashSet<uint> packageIDs = bot.OwnedPackageIDs.Where(static package => (Config?.SecretPackageIDs.Contains(package.Key) != true) && ((package.Value.PaymentMethod != EPaymentMethod.AutoGrant) || (Config?.SkipAutoGrantPackages == false))).Select(static package => package.Key).ToHashSet();
 
 			HashSet<uint> appIDsToRefresh = [];
 
@@ -364,7 +385,7 @@ internal sealed class SteamTokenDumperPlugin : OfficialPlugin, IASF, IBot, IBotC
 					SteamApps.PICSTokensCallback response;
 
 					try {
-						response = await bot.SteamApps.PICSGetAccessTokens(appIDsThisRound, Enumerable.Empty<uint>()).ToLongRunningTask().ConfigureAwait(false);
+						response = await bot.SteamApps.PICSGetAccessTokens(appIDsThisRound, []).ToLongRunningTask().ConfigureAwait(false);
 					} catch (Exception e) {
 						bot.ArchiLogger.LogGenericWarningException(e);
 
@@ -405,7 +426,7 @@ internal sealed class SteamTokenDumperPlugin : OfficialPlugin, IASF, IBot, IBotC
 					AsyncJobMultiple<SteamApps.PICSProductInfoCallback>.ResultSet response;
 
 					try {
-						response = await bot.SteamApps.PICSGetProductInfo(appIDsThisRound.Select(static appID => new SteamApps.PICSRequest(appID, GlobalCache.GetAppToken(appID))), Enumerable.Empty<SteamApps.PICSRequest>()).ToLongRunningTask().ConfigureAwait(false);
+						response = await bot.SteamApps.PICSGetProductInfo(appIDsThisRound.Select(static appID => new SteamApps.PICSRequest(appID, GlobalCache.GetAppToken(appID))), []).ToLongRunningTask().ConfigureAwait(false);
 					} catch (Exception e) {
 						bot.ArchiLogger.LogGenericWarningException(e);
 
@@ -500,7 +521,9 @@ internal sealed class SteamTokenDumperPlugin : OfficialPlugin, IASF, IBot, IBotC
 						}
 					}
 
-					bot.ArchiLogger.LogGenericInfo(string.Format(CultureInfo.CurrentCulture, Strings.BotFinishedRetrievingDepotKeys, depotKeysSuccessful, depotKeysTotal));
+					if (depotKeysTotal > 0) {
+						bot.ArchiLogger.LogGenericInfo(string.Format(CultureInfo.CurrentCulture, Strings.BotFinishedRetrievingDepotKeys, depotKeysSuccessful, depotKeysTotal));
+					}
 
 					if (depotKeysSuccessful < depotKeysTotal) {
 						// We're not going to record app change numbers, as we didn't fetch all the depot keys we wanted
@@ -689,7 +712,7 @@ internal sealed class SteamTokenDumperPlugin : OfficialPlugin, IASF, IBot, IBotC
 			}
 
 			if (response.Content.Data == null) {
-				ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, ArchiSteamFarm.Localization.Strings.ErrorIsInvalid), nameof(response.Content.Data));
+				ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, ArchiSteamFarm.Localization.Strings.ErrorIsInvalid, nameof(response.Content.Data)));
 
 				return;
 			}

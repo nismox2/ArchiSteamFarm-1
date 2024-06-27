@@ -3,17 +3,19 @@ name: ASF-translations
 on:
   schedule:
   - cron: '55 1 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   update:
+    environment: dev-crowdin
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4.1.1
+      uses: actions/checkout@v4.1.7
       with:
         show-progress: false
         submodules: recursive
@@ -21,16 +23,15 @@ jobs:
 
     - name: Reset wiki to follow origin
       shell: sh
+      working-directory: wiki
       run: |
         set -eu
-
-        cd wiki
 
         git fetch --depth=1 origin master
         git reset --hard origin/master
 
     - name: Download latest translations from Crowdin
-      uses: crowdin/github-action@v1.15.2
+      uses: crowdin/github-action@v2.0.0
       with:
         upload_sources: false
         download_translations: true
@@ -51,10 +52,9 @@ jobs:
 
     - name: Commit the changes to wiki
       shell: sh
+      working-directory: wiki
       run: |
         set -eu
-
-        cd wiki
 
         git add -A "locale"
 

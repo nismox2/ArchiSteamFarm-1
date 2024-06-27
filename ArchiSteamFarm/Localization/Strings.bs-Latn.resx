@@ -53,13 +53,11 @@
 		<value>2.0</value>
 	</resheader>
 	<resheader name="reader">
-		<value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral,
-			PublicKeyToken=b77a5c561934e089
+		<value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089
 		</value>
 	</resheader>
 	<resheader name="writer">
-		<value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral,
-			PublicKeyToken=b77a5c561934e089
+		<value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089
 		</value>
 	</resheader>
 	<data name="AcceptingTrade" xml:space="preserve">
@@ -282,15 +280,22 @@
 		<value>Ponuda za razmjenu nije uspjela!</value>
 	</data>
 	
-	
-	
+	<data name="BotLootingSuccess" xml:space="preserve">
+		<value>Ponuda za razmenu je uspešno poslata!</value>
+	</data>
+	<data name="BotSendingTradeToYourself" xml:space="preserve">
+		<value>Ne možete poslati zahtjev za razmjenu sebi!</value>
+	</data>
 	
 	<data name="BotNotConnected" xml:space="preserve">
 		<value>Ova instanca bot-a nije povezana!</value>
 	</data>
 	
 	
-	
+	<data name="BotPointsBalance" xml:space="preserve">
+		<value>Stanje bodova: {0}</value>
+		<comment>{0} will be replaced by the points balance value (integer)</comment>
+	</data>
 	
 	<data name="BotReconnecting" xml:space="preserve">
 		<value>Ponovno povezivanje...</value>
@@ -414,6 +419,20 @@
 		<value>Rezultat: {0}</value>
 		<comment>{0} will be replaced by generic result of various functions that use this string</comment>
 	</data>
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
 	
 	
 	

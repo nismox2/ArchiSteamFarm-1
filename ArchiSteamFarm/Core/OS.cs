@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2023 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2024 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -42,6 +44,9 @@ internal static class OS {
 	// We need to keep this one assigned and not calculated on-demand
 	internal static readonly string ProcessFileName = Environment.ProcessPath ?? throw new InvalidOperationException(nameof(ProcessFileName));
 
+	internal static string? Description => TrimAndNullifyEmptyText(RuntimeInformation.OSDescription);
+	internal static string? Framework => TrimAndNullifyEmptyText(RuntimeInformation.FrameworkDescription);
+
 	internal static DateTime ProcessStartTime {
 		get {
 			using Process process = Process.GetCurrentProcess();
@@ -50,31 +55,15 @@ internal static class OS {
 		}
 	}
 
+	internal static string? Runtime => TrimAndNullifyEmptyText(RuntimeInformation.RuntimeIdentifier);
+
 	internal static string Version {
 		get {
 			if (!string.IsNullOrEmpty(BackingVersion)) {
 				return BackingVersion;
 			}
 
-			string framework = RuntimeInformation.FrameworkDescription.Trim();
-
-			if (framework.Length == 0) {
-				framework = "Unknown Framework";
-			}
-
-			string runtime = RuntimeInformation.RuntimeIdentifier.Trim();
-
-			if (runtime.Length == 0) {
-				runtime = "Unknown Runtime";
-			}
-
-			string description = RuntimeInformation.OSDescription.Trim();
-
-			if (description.Length == 0) {
-				description = "Unknown OS";
-			}
-
-			BackingVersion = $"{framework}; {runtime}; {description}";
+			BackingVersion = $"{Framework ?? "Unknown Framework"}; {Runtime ?? "Unknown Runtime"}; {Description ?? "Unknown OS"}";
 
 			return BackingVersion;
 		}
@@ -84,11 +73,11 @@ internal static class OS {
 	private static Mutex? SingleInstance;
 
 	internal static void CoreInit(bool minimized, bool systemRequired) {
-		if (OperatingSystem.IsWindows()) {
-			if (minimized) {
-				WindowsMinimizeConsoleWindow();
-			}
+		if (minimized) {
+			MinimizeConsoleWindow();
+		}
 
+		if (OperatingSystem.IsWindows()) {
 			if (systemRequired) {
 				WindowsKeepSystemActive();
 			}
@@ -228,6 +217,81 @@ internal static class OS {
 	}
 
 	[SupportedOSPlatform("Windows")]
+	internal static void WindowsStartFlashingConsoleWindow() {
+		if (!OperatingSystem.IsWindows()) {
+			throw new PlatformNotSupportedException();
+		}
+
+		using Process currentProcess = Process.GetCurrentProcess();
+
+		nint handle = currentProcess.MainWindowHandle;
+
+		if (handle == nint.Zero) {
+			return;
+		}
+
+		NativeMethods.FlashWindowInfo flashInfo = new() {
+			StructSize = (uint) Marshal.SizeOf<NativeMethods.FlashWindowInfo>(),
+			Flags = NativeMethods.EFlashFlags.All | NativeMethods.EFlashFlags.Timer,
+			WindowHandle = handle,
+			Count = uint.MaxValue
+		};
+
+		NativeMethods.FlashWindowEx(ref flashInfo);
+	}
+
+	[SupportedOSPlatform("Windows")]
+	internal static void WindowsStopFlashingConsoleWindow() {
+		if (!OperatingSystem.IsWindows()) {
+			throw new PlatformNotSupportedException();
+		}
+
+		using Process currentProcess = Process.GetCurrentProcess();
+		nint handle = currentProcess.MainWindowHandle;
+
+		if (handle == nint.Zero) {
+			return;
+		}
+
+		NativeMethods.FlashWindowInfo flashInfo = new() {
+			StructSize = (uint) Marshal.SizeOf<NativeMethods.FlashWindowInfo>(),
+			Flags = NativeMethods.EFlashFlags.Stop,
+			WindowHandle = handle
+		};
+
+		NativeMethods.FlashWindowEx(ref flashInfo);
+	}
+
+	private static void MinimizeConsoleWindow() {
+		(_, int top) = Console.GetCursorPosition();
+
+		// Will work if the terminal supports XTWINOPS "iconify" escape sequence, reference: https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
+		Console.Write('\x1b' + @"[2;0;0t");
+
+		// Reset cursor position if terminal outputs escape sequences as-is
+		Console.SetCursorPosition(0, top);
+
+		// Fallback if we're using conhost on Windows
+		if (OperatingSystem.IsWindows()) {
+			using Process process = Process.GetCurrentProcess();
+
+			nint windowHandle = process.MainWindowHandle;
+
+			if (windowHandle != nint.Zero) {
+				NativeMethods.ShowWindow(windowHandle, NativeMethods.EShowWindow.Minimize);
+			}
+		}
+	}
+
+	private static string? TrimAndNullifyEmptyText(string text) {
+		ArgumentNullException.ThrowIfNull(text);
+
+		text = text.Trim();
+
+		return text.Length > 0 ? text : null;
+	}
+
+	[SupportedOSPlatform("Windows")]
 	private static void WindowsDisableQuickEditMode() {
 		if (!OperatingSystem.IsWindows()) {
 			throw new PlatformNotSupportedException();
@@ -263,16 +327,5 @@ internal static class OS {
 		if (result == NativeMethods.EExecutionState.None) {
 			ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, result));
 		}
-	}
-
-	[SupportedOSPlatform("Windows")]
-	private static void WindowsMinimizeConsoleWindow() {
-		if (!OperatingSystem.IsWindows()) {
-			throw new PlatformNotSupportedException();
-		}
-
-		using Process process = Process.GetCurrentProcess();
-
-		NativeMethods.ShowWindow(process.MainWindowHandle, NativeMethods.EShowWindow.Minimize);
 	}
 }

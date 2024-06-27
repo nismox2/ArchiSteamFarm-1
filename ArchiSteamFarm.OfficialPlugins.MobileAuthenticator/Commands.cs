@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2023 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2024 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,17 +29,15 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using ArchiSteamFarm.Core;
+using ArchiSteamFarm.Helpers.Json;
 using ArchiSteamFarm.Localization;
 using ArchiSteamFarm.Steam;
-using Newtonsoft.Json;
 using SteamKit2;
 using SteamKit2.Internal;
 
 namespace ArchiSteamFarm.OfficialPlugins.MobileAuthenticator;
 
 internal static class Commands {
-	private const byte MaxFinalizationAttempts = 900 / Steam.Security.MobileAuthenticator.CodeInterval;
-
 	internal static async Task<string?> OnBotCommand(Bot bot, EAccess access, string message, string[] args, ulong steamID = 0) {
 		ArgumentNullException.ThrowIfNull(bot);
 
@@ -128,7 +128,7 @@ internal static class Commands {
 			return bot.Commands.FormatBotResponse(string.Format(CultureInfo.CurrentCulture, Strings.ErrorIsEmpty, nameof(json)));
 		}
 
-		Steam.Security.MobileAuthenticator? mobileAuthenticator = JsonConvert.DeserializeObject<Steam.Security.MobileAuthenticator>(json);
+		Steam.Security.MobileAuthenticator? mobileAuthenticator = json.ToJsonObject<Steam.Security.MobileAuthenticator>();
 
 		if (mobileAuthenticator == null) {
 			return bot.Commands.FormatBotResponse(string.Format(CultureInfo.CurrentCulture, Strings.ErrorIsEmpty, nameof(json)));
@@ -144,43 +144,22 @@ internal static class Commands {
 
 		ulong steamTime = await mobileAuthenticator.GetSteamTime().ConfigureAwait(false);
 
-		bool successFinalizing = false;
+		string? code = mobileAuthenticator.GenerateTokenForTime(steamTime);
 
-		for (byte i = 0; i < MaxFinalizationAttempts; i++) {
-			if (i > 0) {
-				steamTime += Steam.Security.MobileAuthenticator.CodeInterval;
-			}
-
-			string? code = mobileAuthenticator.GenerateTokenForTime(steamTime);
-
-			if (string.IsNullOrEmpty(code)) {
-				return bot.Commands.FormatBotResponse(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, nameof(mobileAuthenticator.GenerateTokenForTime)));
-			}
-
-			CTwoFactor_FinalizeAddAuthenticator_Response? response = await mobileAuthenticatorHandler.FinalizeAuthenticator(bot.SteamID, activationCode, code, steamTime).ConfigureAwait(false);
-
-			if (response == null) {
-				return bot.Commands.FormatBotResponse(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, nameof(mobileAuthenticatorHandler.FinalizeAuthenticator)));
-			}
-
-			if (response.want_more) {
-				// OK, whatever
-				continue;
-			}
-
-			if (!response.success) {
-				EResult result = (EResult) response.status;
-
-				return bot.Commands.FormatBotResponse(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, result));
-			}
-
-			successFinalizing = true;
-
-			break;
+		if (string.IsNullOrEmpty(code)) {
+			return bot.Commands.FormatBotResponse(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, nameof(mobileAuthenticator.GenerateTokenForTime)));
 		}
 
-		if (!successFinalizing) {
-			return bot.Commands.FormatBotResponse(string.Format(CultureInfo.CurrentCulture, Strings.ErrorRequestFailedTooManyTimes, MaxFinalizationAttempts));
+		CTwoFactor_FinalizeAddAuthenticator_Response? response = await mobileAuthenticatorHandler.FinalizeAuthenticator(bot.SteamID, activationCode, code, steamTime).ConfigureAwait(false);
+
+		if (response == null) {
+			return bot.Commands.FormatBotResponse(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, nameof(mobileAuthenticatorHandler.FinalizeAuthenticator)));
+		}
+
+		if (!response.success) {
+			EResult result = (EResult) response.status;
+
+			return bot.Commands.FormatBotResponse(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, result));
 		}
 
 		if (!bot.TryImportAuthenticator(mobileAuthenticator)) {
@@ -220,7 +199,7 @@ internal static class Commands {
 
 		IList<string?> results = await Utilities.InParallel(bots.Select(bot => ResponseTwoFactorFinalize(Steam.Interaction.Commands.GetProxyAccess(bot, access, steamID), bot, activationCode))).ConfigureAwait(false);
 
-		List<string> responses = [..results.Where(static result => !string.IsNullOrEmpty(result))];
+		List<string> responses = [..results.Where(static result => !string.IsNullOrEmpty(result))!];
 
 		return responses.Count > 0 ? string.Join(Environment.NewLine, responses) : null;
 	}
@@ -261,7 +240,7 @@ internal static class Commands {
 			return bot.Commands.FormatBotResponse(string.Format(CultureInfo.CurrentCulture, Strings.ErrorIsEmpty, nameof(json)));
 		}
 
-		Steam.Security.MobileAuthenticator? mobileAuthenticator = JsonConvert.DeserializeObject<Steam.Security.MobileAuthenticator>(json);
+		Steam.Security.MobileAuthenticator? mobileAuthenticator = json.ToJsonObject<Steam.Security.MobileAuthenticator>();
 
 		if (mobileAuthenticator == null) {
 			return bot.Commands.FormatBotResponse(string.Format(CultureInfo.CurrentCulture, Strings.ErrorIsEmpty, nameof(json)));
@@ -313,7 +292,7 @@ internal static class Commands {
 
 		IList<string?> results = await Utilities.InParallel(bots.Select(bot => ResponseTwoFactorFinalized(Steam.Interaction.Commands.GetProxyAccess(bot, access, steamID), bot, activationCode))).ConfigureAwait(false);
 
-		List<string> responses = [..results.Where(static result => !string.IsNullOrEmpty(result))];
+		List<string> responses = [..results.Where(static result => !string.IsNullOrEmpty(result))!];
 
 		return responses.Count > 0 ? string.Join(Environment.NewLine, responses) : null;
 	}
@@ -360,7 +339,7 @@ internal static class Commands {
 		MaFileData maFileData = new(response, bot.SteamID, deviceID);
 
 		string maFilePendingPath = $"{bot.GetFilePath(Bot.EFileType.MobileAuthenticator)}.PENDING";
-		string json = JsonConvert.SerializeObject(maFileData, Formatting.Indented);
+		string json = maFileData.ToJsonText(true);
 
 		try {
 			await File.WriteAllTextAsync(maFilePendingPath, json).ConfigureAwait(false);
@@ -392,7 +371,7 @@ internal static class Commands {
 
 		IList<string?> results = await Utilities.InParallel(bots.Select(bot => ResponseTwoFactorInit(Steam.Interaction.Commands.GetProxyAccess(bot, access, steamID), bot))).ConfigureAwait(false);
 
-		List<string> responses = [..results.Where(static result => !string.IsNullOrEmpty(result))];
+		List<string> responses = [..results.Where(static result => !string.IsNullOrEmpty(result))!];
 
 		return responses.Count > 0 ? string.Join(Environment.NewLine, responses) : null;
 	}

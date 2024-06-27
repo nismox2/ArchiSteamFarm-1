@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2023 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2024 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,6 +27,7 @@ using System.Collections.Specialized;
 using System.Globalization;
 using System.Linq;
 using System.Net;
+using System.Text.Json;
 using System.Threading.Tasks;
 using ArchiSteamFarm.Core;
 using ArchiSteamFarm.IPC.Requests;
@@ -33,13 +36,45 @@ using ArchiSteamFarm.Localization;
 using ArchiSteamFarm.Steam;
 using ArchiSteamFarm.Steam.Storage;
 using Microsoft.AspNetCore.Mvc;
-using Newtonsoft.Json.Linq;
+using SteamKit2;
 using SteamKit2.Internal;
 
 namespace ArchiSteamFarm.IPC.Controllers.Api;
 
 [Route("Api/Bot")]
 public sealed class BotController : ArchiController {
+	/// <summary>
+	///     Adds (free) licenses on given bots.
+	/// </summary>
+	[Consumes("application/json")]
+	[HttpPost("{botNames:required}/AddLicense")]
+	[ProducesResponseType<GenericResponse<IReadOnlyDictionary<string, BotAddLicenseResponse>>>((int) HttpStatusCode.OK)]
+	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.BadRequest)]
+	public async Task<ActionResult<GenericResponse>> AddLicensePost(string botNames, [FromBody] BotAddLicenseRequest request) {
+		ArgumentException.ThrowIfNullOrEmpty(botNames);
+		ArgumentNullException.ThrowIfNull(request);
+
+		if ((request.Apps?.IsEmpty != false) && (request.Packages?.IsEmpty != false)) {
+			return BadRequest(new GenericResponse(false, string.Format(CultureInfo.CurrentCulture, Strings.ErrorIsEmpty, $"{nameof(request.Apps)} && {nameof(request.Packages)}")));
+		}
+
+		HashSet<Bot>? bots = Bot.GetBots(botNames);
+
+		if ((bots == null) || (bots.Count == 0)) {
+			return BadRequest(new GenericResponse(false, string.Format(CultureInfo.CurrentCulture, Strings.BotNotFound, botNames)));
+		}
+
+		IList<BotAddLicenseResponse> results = await Utilities.InParallel(bots.Select(bot => AddLicense(bot, request))).ConfigureAwait(false);
+
+		Dictionary<string, BotAddLicenseResponse> result = new(bots.Count, Bot.BotsComparer);
+
+		foreach (Bot bot in bots) {
+			result[bot.BotName] = results[result.Count];
+		}
+
+		return Ok(new GenericResponse<IReadOnlyDictionary<string, BotAddLicenseResponse>>(result));
+	}
+
 	/// <summary>
 	///     Deletes all files related to given bots.
 	/// </summary>
@@ -127,9 +162,9 @@ public sealed class BotController : ArchiController {
 				}
 
 				if (bot.BotConfig.AdditionalProperties?.Count > 0) {
-					request.BotConfig.AdditionalProperties ??= new Dictionary<string, JToken>(bot.BotConfig.AdditionalProperties.Count, bot.BotConfig.AdditionalProperties.Comparer);
+					request.BotConfig.AdditionalProperties ??= new Dictionary<string, JsonElement>(bot.BotConfig.AdditionalProperties.Count, bot.BotConfig.AdditionalProperties.Comparer);
 
-					foreach ((string key, JToken value) in bot.BotConfig.AdditionalProperties.Where(property => !request.BotConfig.AdditionalProperties.ContainsKey(property.Key))) {
+					foreach ((string key, JsonElement value) in bot.BotConfig.AdditionalProperties.Where(property => !request.BotConfig.AdditionalProperties.ContainsKey(property.Key))) {
 						request.BotConfig.AdditionalProperties.Add(key, value);
 					}
 
@@ -413,5 +448,47 @@ public sealed class BotController : ArchiController {
 		IList<(bool Success, string Message)> results = await Utilities.InParallel(bots.Select(static bot => Task.Run(bot.Actions.Stop))).ConfigureAwait(false);
 
 		return Ok(new GenericResponse(results.All(static result => result.Success), string.Join(Environment.NewLine, results.Select(static result => result.Message))));
+	}
+
+	private static async Task<BotAddLicenseResponse> AddLicense(Bot bot, BotAddLicenseRequest request) {
+		ArgumentNullException.ThrowIfNull(bot);
+		ArgumentNullException.ThrowIfNull(request);
+
+		Dictionary<uint, AddLicenseResult>? apps = null;
+		Dictionary<uint, AddLicenseResult>? packages = null;
+
+		if (request.Apps != null) {
+			apps = new Dictionary<uint, AddLicenseResult>(request.Apps.Count);
+
+			foreach (uint appID in request.Apps) {
+				if (!bot.IsConnectedAndLoggedOn) {
+					apps[appID] = new AddLicenseResult(EResult.Timeout, EPurchaseResultDetail.Timeout);
+
+					continue;
+				}
+
+				(EResult result, IReadOnlyCollection<uint>? grantedApps, IReadOnlyCollection<uint>? grantedPackages) = await bot.Actions.AddFreeLicenseApp(appID).ConfigureAwait(false);
+
+				apps[appID] = new AddLicenseResult(result, (grantedApps?.Count > 0) || (grantedPackages?.Count > 0) ? EPurchaseResultDetail.NoDetail : EPurchaseResultDetail.InvalidData);
+			}
+		}
+
+		if (request.Packages != null) {
+			packages = new Dictionary<uint, AddLicenseResult>(request.Packages.Count);
+
+			foreach (uint subID in request.Packages) {
+				if (!bot.IsConnectedAndLoggedOn) {
+					packages[subID] = new AddLicenseResult(EResult.Timeout, EPurchaseResultDetail.Timeout);
+
+					continue;
+				}
+
+				(EResult result, EPurchaseResultDetail purchaseResultDetail) = await bot.Actions.AddFreeLicensePackage(subID).ConfigureAwait(false);
+
+				packages[subID] = new AddLicenseResult(result, purchaseResultDetail);
+			}
+		}
+
+		return new BotAddLicenseResponse(apps, packages);
 	}
 }

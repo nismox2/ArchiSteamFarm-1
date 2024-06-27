@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2023 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2024 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,12 +30,15 @@ using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Text;
+using System.Security.Cryptography;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Web;
 using AngleSharp.Dom;
 using ArchiSteamFarm.Core;
 using ArchiSteamFarm.Helpers;
+using ArchiSteamFarm.Helpers.Json;
 using ArchiSteamFarm.Localization;
 using ArchiSteamFarm.Steam.Data;
 using ArchiSteamFarm.Steam.Exchange;
@@ -41,19 +46,19 @@ using ArchiSteamFarm.Storage;
 using ArchiSteamFarm.Web;
 using ArchiSteamFarm.Web.Responses;
 using JetBrains.Annotations;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using SteamKit2;
 
 namespace ArchiSteamFarm.Steam.Integration;
 
 public sealed class ArchiWebHandler : IDisposable {
+	// Steam network (ArchiHandler) works unstable with more items than this (throwing upon description details), while Steam web (ArchiWebHandler) silently limits to this value maximum
+	internal const ushort MaxItemsInSingleInventoryRequest = 5000;
+
 	private const string EconService = "IEconService";
 	private const string LoyaltyRewardsService = "ILoyaltyRewardsService";
-	private const ushort MaxItemsInSingleInventoryRequest = 5000;
 	private const byte MinimumSessionValidityInSeconds = 10;
+	private const byte SessionIDLength = 24; // For maximum compatibility, should be divisible by 2 and match the length of "sessionid" property that Steam uses across their websites
 	private const string SteamAppsService = "ISteamApps";
-	private const string TwoFactorService = "ITwoFactorService";
 
 	[PublicAPI]
 	public static Uri SteamCheckoutURL => new("https://checkout.steampowered.com");
@@ -68,9 +73,6 @@ public sealed class ArchiWebHandler : IDisposable {
 	public static Uri SteamStoreURL => new("https://store.steampowered.com");
 
 	private static ushort WebLimiterDelay => ASF.GlobalConfig?.WebLimiterDelay ?? GlobalConfig.DefaultWebLimiterDelay;
-
-	[PublicAPI]
-	public ArchiCacheable<string> CachedAccessToken { get; }
 
 	[PublicAPI]
 	public WebBrowser WebBrowser { get; }
@@ -88,14 +90,10 @@ public sealed class ArchiWebHandler : IDisposable {
 		ArgumentNullException.ThrowIfNull(bot);
 
 		Bot = bot;
-
-		CachedAccessToken = new ArchiCacheable<string>(ResolveAccessToken, TimeSpan.FromHours(6));
-
 		WebBrowser = new WebBrowser(bot.ArchiLogger, ASF.GlobalConfig?.WebProxy);
 	}
 
 	public void Dispose() {
-		CachedAccessToken.Dispose();
 		SessionSemaphore.Dispose();
 		WebBrowser.Dispose();
 	}
@@ -130,7 +128,7 @@ public sealed class ArchiWebHandler : IDisposable {
 
 	[PublicAPI]
 	public async Task<ImmutableHashSet<BoosterCreatorEntry>?> GetBoosterCreatorEntries() {
-		Uri request = new(SteamCommunityURL, "/tradingcards/boostercreator");
+		Uri request = new(SteamCommunityURL, "/tradingcards/boostercreator?l=english");
 
 		using HtmlDocumentResponse? response = await UrlGetToHtmlDocumentWithSession(request, checkSessionPreemptively: false).ConfigureAwait(false);
 
@@ -168,7 +166,7 @@ public sealed class ArchiWebHandler : IDisposable {
 			string json = scriptNode.TextContent[startIndex..(endIndex + 1)];
 
 			try {
-				result = JsonConvert.DeserializeObject<ImmutableHashSet<BoosterCreatorEntry>>(json);
+				result = json.ToJsonObject<ImmutableHashSet<BoosterCreatorEntry>>();
 			} catch (Exception e) {
 				Bot.ArchiLogger.LogGenericException(e);
 
@@ -189,7 +187,7 @@ public sealed class ArchiWebHandler : IDisposable {
 
 	[PublicAPI]
 	public async Task<HashSet<uint>?> GetBoosterEligibility() {
-		Uri request = new(SteamCommunityURL, "/my/ajaxgetboostereligibility");
+		Uri request = new(SteamCommunityURL, "/my/ajaxgetboostereligibility?l=english");
 
 		using HtmlDocumentResponse? response = await UrlGetToHtmlDocumentWithSession(request, checkSessionPreemptively: false).ConfigureAwait(false);
 
@@ -230,14 +228,14 @@ public sealed class ArchiWebHandler : IDisposable {
 		return result;
 	}
 
+	/// <remarks>
+	///     If targetting inventory of this <see cref="Bot" /> instance, consider using much more efficient <see cref="ArchiHandler.GetMyInventoryAsync" /> instead.
+	///     This method should be used exclusively for foreign inventories (other users), but in special circumstances it can be used for fetching bot's own inventory as well.
+	/// </remarks>
 	[PublicAPI]
 	public async IAsyncEnumerable<Asset> GetInventoryAsync(ulong steamID = 0, uint appID = Asset.SteamAppID, ulong contextID = Asset.SteamCommunityContextID) {
 		ArgumentOutOfRangeException.ThrowIfZero(appID);
 		ArgumentOutOfRangeException.ThrowIfZero(contextID);
-
-		if (ASF.InventorySemaphore == null) {
-			throw new InvalidOperationException(nameof(ASF.InventorySemaphore));
-		}
 
 		if (steamID == 0) {
 			if (!Initialized) {
@@ -257,10 +255,16 @@ public sealed class ArchiWebHandler : IDisposable {
 			throw new NotSupportedException(string.Format(CultureInfo.CurrentCulture, Strings.ErrorObjectIsNull, nameof(steamID)));
 		}
 
+		if (ASF.InventorySemaphore == null) {
+			throw new InvalidOperationException(nameof(ASF.InventorySemaphore));
+		}
+
 		ulong startAssetID = 0;
 
 		// We need to store asset IDs to make sure we won't get duplicate items
 		HashSet<ulong>? assetIDs = null;
+
+		Dictionary<(ulong ClassID, ulong InstanceID), InventoryDescription>? descriptions = null;
 
 		int rateLimitingDelay = (ASF.GlobalConfig?.InventoryLimiterDelay ?? GlobalConfig.DefaultInventoryLimiterDelay) * 1000;
 
@@ -272,7 +276,7 @@ public sealed class ArchiWebHandler : IDisposable {
 			ObjectResponse<InventoryResponse>? response = null;
 
 			try {
-				for (byte i = 0; (i < WebBrowser.MaxTries) && (response == null); i++) {
+				for (byte i = 0; (i < WebBrowser.MaxTries) && (response?.Content is not { Result: EResult.OK } || !response.StatusCode.IsSuccessCode()); i++) {
 					if ((i > 0) && (rateLimitingDelay > 0)) {
 						await Task.Delay(rateLimitingDelay).ConfigureAwait(false);
 					}
@@ -290,22 +294,30 @@ public sealed class ArchiWebHandler : IDisposable {
 					if (response.StatusCode.IsServerErrorCode()) {
 						if (string.IsNullOrEmpty(response.Content?.ErrorText)) {
 							// This is a generic server error without a reason, try again
-							response = null;
-
 							continue;
 						}
 
-						// Interpret the reason and see if we should try again
+						Bot.ArchiLogger.LogGenericDebug(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, response.Content.ErrorText));
+
+						// Try to interpret the failure reason and see if we should try again
 						switch (response.Content.ErrorCode) {
+							case EResult.Busy:
 							case EResult.DuplicateRequest:
+							case EResult.Fail:
+							case EResult.RemoteCallFailed:
 							case EResult.ServiceUnavailable:
-								response = null;
-
+							case EResult.Timeout:
+								// Expected failures that we should be able to retry
 								continue;
-						}
+							case EResult.NoMatch:
+								// Expected failures that we're not going to retry
+								throw new HttpRequestException(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, response.Content.ErrorText), null, response.StatusCode);
+							default:
+								// Unknown failures, report them and do not retry since we're unsure if we should
+								Bot.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningUnknownValuePleaseReport, nameof(response.Content.ErrorText), response.Content.ErrorText));
 
-						// This is actually client error with a reason, so it doesn't make sense to retry
-						throw new HttpRequestException(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, response.Content.ErrorText), null, response.StatusCode);
+								throw new HttpRequestException(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, response.Content.ErrorText), null, response.StatusCode);
+						}
 					}
 				}
 			} finally {
@@ -321,17 +333,21 @@ public sealed class ArchiWebHandler : IDisposable {
 				}
 			}
 
-			if (response?.Content == null) {
+			if (response == null) {
 				throw new HttpRequestException(string.Format(CultureInfo.CurrentCulture, Strings.ErrorObjectIsNull, nameof(response)));
 			}
 
-			if (response.Content.Result is not EResult.OK) {
-				throw new HttpRequestException(!string.IsNullOrEmpty(response.Content.ErrorText) ? string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, response.Content.ErrorText) : response.Content.Result.HasValue ? string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, response.Content.Result) : Strings.WarningFailed);
+			if (response.Content is not { Result: EResult.OK } || !response.StatusCode.IsSuccessCode()) {
+				throw new HttpRequestException(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, response.Content?.ErrorText ?? response.Content?.Result?.ToString() ?? response.StatusCode.ToString()));
 			}
 
-			if (response.Content.TotalInventoryCount == 0) {
+			if ((response.Content.TotalInventoryCount == 0) || (response.Content.Assets.Count == 0)) {
 				// Empty inventory
 				yield break;
+			}
+
+			if (response.Content.Descriptions.Count == 0) {
+				throw new InvalidOperationException(nameof(response.Content.Descriptions));
 			}
 
 			if (response.Content.TotalInventoryCount > Array.MaxLength) {
@@ -340,13 +356,14 @@ public sealed class ArchiWebHandler : IDisposable {
 
 			assetIDs ??= new HashSet<ulong>((int) response.Content.TotalInventoryCount);
 
-			if ((response.Content.Assets.Count == 0) || (response.Content.Descriptions.Count == 0)) {
-				throw new NotSupportedException(string.Format(CultureInfo.CurrentCulture, Strings.ErrorObjectIsNull, $"{nameof(response.Content.Assets)} || {nameof(response.Content.Descriptions)}"));
+			if (descriptions == null) {
+				descriptions = new Dictionary<(ulong ClassID, ulong InstanceID), InventoryDescription>();
+			} else {
+				// We don't need descriptions from the previous request
+				descriptions.Clear();
 			}
 
-			Dictionary<(ulong ClassID, ulong InstanceID), InventoryResponse.Description> descriptions = new();
-
-			foreach (InventoryResponse.Description description in response.Content.Descriptions) {
+			foreach (InventoryDescription description in response.Content.Descriptions) {
 				if (description.ClassID == 0) {
 					throw new NotSupportedException(string.Format(CultureInfo.CurrentCulture, Strings.ErrorObjectIsNull, nameof(description.ClassID)));
 				}
@@ -356,20 +373,9 @@ public sealed class ArchiWebHandler : IDisposable {
 				descriptions.TryAdd(key, description);
 			}
 
-			foreach (Asset asset in response.Content.Assets) {
-				if (!descriptions.TryGetValue((asset.ClassID, asset.InstanceID), out InventoryResponse.Description? description) || !assetIDs.Add(asset.AssetID)) {
-					continue;
-				}
-
-				asset.Marketable = description.Marketable;
-				asset.Tradable = description.Tradable;
-				asset.Tags = description.Tags;
-				asset.RealAppID = description.RealAppID;
-				asset.Type = description.Type;
-				asset.Rarity = description.Rarity;
-
-				if (description.AdditionalProperties != null) {
-					asset.AdditionalProperties = description.AdditionalProperties;
+			foreach (Asset asset in response.Content.Assets.Where(asset => assetIDs.Add(asset.AssetID))) {
+				if (descriptions.TryGetValue((asset.ClassID, asset.InstanceID), out InventoryDescription? description)) {
+					asset.Description = description;
 				}
 
 				yield return asset;
@@ -389,7 +395,7 @@ public sealed class ArchiWebHandler : IDisposable {
 
 	[PublicAPI]
 	public async Task<uint?> GetPointsBalance() {
-		(_, string? accessToken) = await CachedAccessToken.GetValue(ECacheFallback.SuccessPreviously).ConfigureAwait(false);
+		string? accessToken = Bot.AccessToken;
 
 		if (string.IsNullOrEmpty(accessToken)) {
 			return null;
@@ -451,24 +457,28 @@ public sealed class ArchiWebHandler : IDisposable {
 	}
 
 	[PublicAPI]
-	public async Task<HashSet<TradeOffer>?> GetTradeOffers(bool? activeOnly = null, bool? receivedOffers = null, bool? sentOffers = null, bool? withDescriptions = null) {
-		(_, string? accessToken) = await CachedAccessToken.GetValue(ECacheFallback.SuccessPreviously).ConfigureAwait(false);
+	public async Task<HashSet<TradeOffer>?> GetTradeOffers(bool? activeOffers = null, bool? receivedOffers = null, bool? sentOffers = null, bool? withDescriptions = null) {
+		if ((receivedOffers == false) && (sentOffers == false)) {
+			throw new ArgumentException($"{nameof(receivedOffers)} && {nameof(sentOffers)}");
+		}
+
+		string? accessToken = Bot.AccessToken;
 
 		if (string.IsNullOrEmpty(accessToken)) {
 			return null;
 		}
 
-		Dictionary<string, object?> arguments = new(StringComparer.Ordinal) {
+		Dictionary<string, object> arguments = new(StringComparer.Ordinal) {
 			{ "access_token", accessToken }
 		};
 
-		if (activeOnly.HasValue) {
-			arguments["active_only"] = activeOnly.Value ? "true" : "false";
+		if (activeOffers.HasValue) {
+			arguments["active_only"] = activeOffers.Value ? "true" : "false";
 
 			// This is ridiculous, active_only without historical cutoff is actually active right now + inactive ones that changed their status since our preview request, what the fuck
 			// We're going to make it work as everybody sane expects, by being active ONLY, as the name implies, not active + some shit nobody asked for
 			// https://developer.valvesoftware.com/wiki/Steam_Web_API/IEconService#GetTradeOffers_.28v1.29
-			if (activeOnly.Value) {
+			if (activeOffers.Value) {
 				arguments["time_historical_cutoff"] = uint.MaxValue;
 			}
 		}
@@ -485,30 +495,11 @@ public sealed class ArchiWebHandler : IDisposable {
 			arguments["get_descriptions"] = withDescriptions.Value ? "true" : "false";
 		}
 
-		KeyValue? response = null;
+		string queryString = string.Join('&', arguments.Select(static argument => $"{argument.Key}={HttpUtility.UrlEncode(argument.Value.ToString())}"));
 
-		for (byte i = 0; (i < WebBrowser.MaxTries) && (response == null); i++) {
-			if ((i > 0) && (WebLimiterDelay > 0)) {
-				await Task.Delay(WebLimiterDelay).ConfigureAwait(false);
-			}
+		Uri request = new(WebAPI.DefaultBaseAddress, $"/{EconService}/GetTradeOffers/v1?{queryString}");
 
-			using WebAPI.AsyncInterface econService = Bot.SteamConfiguration.GetAsyncWebAPIInterface(EconService);
-
-			econService.Timeout = WebBrowser.Timeout;
-
-			try {
-				response = await WebLimitRequest(
-					WebAPI.DefaultBaseAddress,
-
-					// ReSharper disable once AccessToDisposedClosure
-					async () => await econService.CallAsync(HttpMethod.Get, "GetTradeOffers", args: arguments).ConfigureAwait(false)
-				).ConfigureAwait(false);
-			} catch (TaskCanceledException e) {
-				Bot.ArchiLogger.LogGenericDebuggingException(e);
-			} catch (Exception e) {
-				Bot.ArchiLogger.LogGenericWarningException(e);
-			}
-		}
+		TradeOffersResponse? response = (await WebLimitRequest(WebAPI.DefaultBaseAddress, async () => await WebBrowser.UrlGetToJsonObject<APIWrappedResponse<TradeOffersResponse>>(request).ConfigureAwait(false)).ConfigureAwait(false))?.Content?.Response;
 
 		if (response == null) {
 			Bot.ArchiLogger.LogGenericWarning(string.Format(CultureInfo.CurrentCulture, Strings.ErrorRequestFailedTooManyTimes, WebBrowser.MaxTries));
@@ -516,133 +507,55 @@ public sealed class ArchiWebHandler : IDisposable {
 			return null;
 		}
 
-		Dictionary<(uint AppID, ulong ClassID, ulong InstanceID), InventoryResponse.Description> descriptions = new();
-
-		foreach (KeyValue description in response["descriptions"].Children) {
-			uint appID = description["appid"].AsUnsignedInteger();
-
-			if (appID == 0) {
-				Bot.ArchiLogger.LogNullError(appID);
-
-				return null;
-			}
-
-			ulong classID = description["classid"].AsUnsignedLong();
-
-			if (classID == 0) {
-				Bot.ArchiLogger.LogNullError(classID);
-
-				return null;
-			}
-
-			ulong instanceID = description["instanceid"].AsUnsignedLong();
-
-			(uint AppID, ulong ClassID, ulong InstanceID) key = (appID, classID, instanceID);
-
-			if (descriptions.ContainsKey(key)) {
-				continue;
-			}
-
-			bool marketable = description["marketable"].AsBoolean();
-
-			List<KeyValue> tags = description["tags"].Children;
-
-			HashSet<Tag>? parsedTags = null;
-
-			if (tags.Count > 0) {
-				parsedTags = new HashSet<Tag>(tags.Count);
-
-				foreach (KeyValue tag in tags) {
-					string? identifier = tag["category"].AsString();
-
-					if (string.IsNullOrEmpty(identifier)) {
-						Bot.ArchiLogger.LogNullError(identifier);
-
-						return null;
-					}
-
-					string? value = tag["internal_name"].AsString();
-
-					// Apparently, name can be empty, but not null
-					if (value == null) {
-						Bot.ArchiLogger.LogNullError(value);
-
-						return null;
-					}
-
-					parsedTags.Add(new Tag(identifier, value));
-				}
-			}
-
-			InventoryResponse.Description parsedDescription = new(appID, classID, instanceID, marketable, parsedTags);
-
-			descriptions[key] = parsedDescription;
-		}
-
-		IEnumerable<KeyValue> trades = Enumerable.Empty<KeyValue>();
+		IEnumerable<TradeOffer> trades = [];
 
 		if (receivedOffers.GetValueOrDefault(true)) {
-			trades = trades.Concat(response["trade_offers_received"].Children);
+			trades = trades.Concat(response.TradeOffersReceived);
 		}
 
 		if (sentOffers.GetValueOrDefault(true)) {
-			trades = trades.Concat(response["trade_offers_sent"].Children);
+			trades = trades.Concat(response.TradeOffersSent);
 		}
 
-		HashSet<TradeOffer> result = [];
+		HashSet<TradeOffer> result = trades.Where(tradeOffer => !activeOffers.HasValue || ((!activeOffers.Value || (tradeOffer.State == ETradeOfferState.Active)) && (activeOffers.Value || (tradeOffer.State != ETradeOfferState.Active)))).ToHashSet();
 
-		foreach (KeyValue trade in trades) {
-			ETradeOfferState state = trade["trade_offer_state"].AsEnum<ETradeOfferState>();
+		if ((result.Count == 0) || (response.Descriptions.Count == 0)) {
+			return result;
+		}
 
-			if (!Enum.IsDefined(state)) {
-				Bot.ArchiLogger.LogNullError(state);
+		// Due to a possibility of duplicate descriptions, we can't simply call ToDictionary() here
+		Dictionary<(uint AppID, ulong ClassID, ulong InstanceID), InventoryDescription> descriptions = new();
 
-				return null;
-			}
+		foreach (InventoryDescription description in response.Descriptions) {
+			if (description.AppID == 0) {
+				Bot.ArchiLogger.LogNullError(nameof(description.AppID));
 
-			if (activeOnly.HasValue && ((activeOnly.Value && (state != ETradeOfferState.Active)) || (!activeOnly.Value && (state == ETradeOfferState.Active)))) {
 				continue;
 			}
 
-			ulong tradeOfferID = trade["tradeofferid"].AsUnsignedLong();
+			if (description.ClassID == 0) {
+				Bot.ArchiLogger.LogNullError(nameof(description.ClassID));
 
-			if (tradeOfferID == 0) {
-				Bot.ArchiLogger.LogNullError(tradeOfferID);
-
-				return null;
+				continue;
 			}
 
-			uint otherSteamID3 = trade["accountid_other"].AsUnsignedInteger();
+			(uint AppID, ulong ClassID, ulong InstanceID) key = (description.AppID, description.ClassID, description.InstanceID);
 
-			if (otherSteamID3 == 0) {
-				Bot.ArchiLogger.LogNullError(otherSteamID3);
+			descriptions.TryAdd(key, description);
+		}
 
-				return null;
+		if (descriptions.Count == 0) {
+			return result;
+		}
+
+		foreach (TradeOffer tradeOffer in result) {
+			if (tradeOffer.ItemsToGive.Count > 0) {
+				SetDescriptionsToAssets(tradeOffer.ItemsToGive, descriptions);
 			}
 
-			TradeOffer tradeOffer = new(tradeOfferID, otherSteamID3, state);
-
-			List<KeyValue> itemsToGive = trade["items_to_give"].Children;
-
-			if (itemsToGive.Count > 0) {
-				if (!ParseItems(descriptions, itemsToGive, tradeOffer.ItemsToGive)) {
-					Bot.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.ErrorParsingObject, nameof(itemsToGive)));
-
-					return null;
-				}
+			if (tradeOffer.ItemsToReceive.Count > 0) {
+				SetDescriptionsToAssets(tradeOffer.ItemsToReceive, descriptions);
 			}
-
-			List<KeyValue> itemsToReceive = trade["items_to_receive"].Children;
-
-			if (itemsToReceive.Count > 0) {
-				if (!ParseItems(descriptions, itemsToReceive, tradeOffer.ItemsToReceive)) {
-					Bot.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.ErrorParsingObject, nameof(itemsToReceive)));
-
-					return null;
-				}
-			}
-
-			result.Add(tradeOffer);
 		}
 
 		return result;
@@ -714,7 +627,7 @@ public sealed class ArchiWebHandler : IDisposable {
 		Dictionary<string, string> data = new(6, StringComparer.Ordinal) {
 			{ "partner", steamID.ToString(CultureInfo.InvariantCulture) },
 			{ "serverid", "1" },
-			{ "trade_offer_create_params", !string.IsNullOrEmpty(token) ? new JObject { { "trade_offer_access_token", token } }.ToString(Formatting.None) : "" },
+			{ "trade_offer_create_params", !string.IsNullOrEmpty(token) ? new JsonObject { { "trade_offer_access_token", token } }.ToJsonText() : "" },
 			{ "tradeoffermessage", $"Sent by {SharedInfo.PublicIdentifier}/{SharedInfo.Version}" }
 		};
 
@@ -722,7 +635,7 @@ public sealed class ArchiWebHandler : IDisposable {
 		HashSet<ulong> mobileTradeOfferIDs = new(trades.Count);
 
 		foreach (TradeOfferSendRequest trade in trades) {
-			data["json_tradeoffer"] = JsonConvert.SerializeObject(trade);
+			data["json_tradeoffer"] = trade.ToJsonText();
 
 			ObjectResponse<TradeOfferSendResponse>? response = null;
 
@@ -1579,7 +1492,7 @@ public sealed class ArchiWebHandler : IDisposable {
 			{ "ajax", "true" }
 		};
 
-		ObjectResponse<JToken>? response = await UrlPostToJsonObjectWithSession<JToken>(request, data: data, requestOptions: WebBrowser.ERequestOptions.ReturnClientErrors | WebBrowser.ERequestOptions.ReturnServerErrors | WebBrowser.ERequestOptions.AllowInvalidBodyOnErrors).ConfigureAwait(false);
+		ObjectResponse<JsonNode>? response = await UrlPostToJsonObjectWithSession<JsonNode>(request, data: data, requestOptions: WebBrowser.ERequestOptions.ReturnClientErrors | WebBrowser.ERequestOptions.ReturnServerErrors | WebBrowser.ERequestOptions.AllowInvalidBodyOnErrors).ConfigureAwait(false);
 
 		if (response == null) {
 			return (EResult.Fail, EPurchaseResultDetail.Timeout);
@@ -1595,31 +1508,37 @@ public sealed class ArchiWebHandler : IDisposable {
 				// There is not much we can do apart from trying to extract the result and returning it along with the OK and non-OK response, it's also why it doesn't make any sense to strong-type it
 				EResult result = response.StatusCode.IsSuccessCode() ? EResult.OK : EResult.Fail;
 
-				if (response.Content is not JObject jObject) {
+				if (response.Content is not JsonObject jsonObject) {
 					// Who knows what piece of crap that is?
 					return (result, EPurchaseResultDetail.NoDetail);
 				}
 
-				byte? numberResult = jObject["purchaseresultdetail"]?.Value<byte>();
+				try {
+					byte? numberResult = jsonObject["purchaseresultdetail"]?.GetValue<byte>();
 
-				if (numberResult.HasValue) {
-					return (result, (EPurchaseResultDetail) numberResult.Value);
-				}
+					if (numberResult.HasValue) {
+						return (result, (EPurchaseResultDetail) numberResult.Value);
+					}
 
-				// Attempt to do limited parsing from error message, if it exists that is
-				string? errorMessage = jObject["error"]?.Value<string>();
+					// Attempt to do limited parsing from error message, if it exists that is
+					string? errorMessage = jsonObject["error"]?.GetValue<string>();
 
-				switch (errorMessage) {
-					case null:
-					case "":
-						// Thanks Steam, very useful
-						return (result, EPurchaseResultDetail.NoDetail);
-					case "You got rate limited, try again in an hour.":
-						return (result, EPurchaseResultDetail.RateLimited);
-					default:
-						Bot.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningUnknownValuePleaseReport, nameof(errorMessage), errorMessage));
+					switch (errorMessage) {
+						case null:
+						case "":
+							// Thanks Steam, very useful
+							return (result, EPurchaseResultDetail.NoDetail);
+						case "You got rate limited, try again in an hour.":
+							return (result, EPurchaseResultDetail.RateLimited);
+						default:
+							Bot.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningUnknownValuePleaseReport, nameof(errorMessage), errorMessage));
 
-						return (result, EPurchaseResultDetail.ContactSupport);
+							return (result, EPurchaseResultDetail.ContactSupport);
+					}
+				} catch (Exception e) {
+					Bot.ArchiLogger.LogGenericException(e);
+
+					return (result, EPurchaseResultDetail.ContactSupport);
 				}
 			case HttpStatusCode.Unauthorized:
 				// Let's convert this into something reasonable
@@ -1648,7 +1567,7 @@ public sealed class ArchiWebHandler : IDisposable {
 		// Extra entry for sessionID
 		Dictionary<string, string> data = new(3, StringComparer.Ordinal) {
 			{ "eCommentPermission", ((byte) userPrivacy.CommentPermission).ToString(CultureInfo.InvariantCulture) },
-			{ "Privacy", JsonConvert.SerializeObject(userPrivacy.Settings) }
+			{ "Privacy", userPrivacy.Settings.ToJsonText() }
 		};
 
 		ObjectResponse<ResultResponse>? response = await UrlPostToJsonObjectWithSession<ResultResponse>(request, data: data).ConfigureAwait(false);
@@ -1799,7 +1718,7 @@ public sealed class ArchiWebHandler : IDisposable {
 			throw new ArgumentOutOfRangeException(nameof(steamID));
 		}
 
-		(_, string? accessToken) = await CachedAccessToken.GetValue(ECacheFallback.SuccessPreviously).ConfigureAwait(false);
+		string? accessToken = Bot.AccessToken;
 
 		if (string.IsNullOrEmpty(accessToken)) {
 			return null;
@@ -1892,7 +1811,7 @@ public sealed class ArchiWebHandler : IDisposable {
 	}
 
 	internal async Task<HashSet<ulong>?> GetDigitalGiftCards() {
-		Uri request = new(SteamStoreURL, "/gifts");
+		Uri request = new(SteamStoreURL, "/gifts?l=english");
 
 		using HtmlDocumentResponse? response = await UrlGetToHtmlDocumentWithSession(request, checkSessionPreemptively: false).ConfigureAwait(false);
 
@@ -1978,49 +1897,6 @@ public sealed class ArchiWebHandler : IDisposable {
 		HtmlDocumentResponse? response = await UrlGetToHtmlDocumentWithSession(request, checkSessionPreemptively: false).ConfigureAwait(false);
 
 		return response?.Content;
-	}
-
-	internal async Task<ulong> GetServerTime() {
-		KeyValue? response = null;
-
-		for (byte i = 0; (i < WebBrowser.MaxTries) && (response == null); i++) {
-			if ((i > 0) && (WebLimiterDelay > 0)) {
-				await Task.Delay(WebLimiterDelay).ConfigureAwait(false);
-			}
-
-			using WebAPI.AsyncInterface twoFactorService = Bot.SteamConfiguration.GetAsyncWebAPIInterface(TwoFactorService);
-
-			twoFactorService.Timeout = WebBrowser.Timeout;
-
-			try {
-				response = await WebLimitRequest(
-					WebAPI.DefaultBaseAddress,
-
-					// ReSharper disable once AccessToDisposedClosure
-					async () => await twoFactorService.CallAsync(HttpMethod.Post, "QueryTime").ConfigureAwait(false)
-				).ConfigureAwait(false);
-			} catch (TaskCanceledException e) {
-				Bot.ArchiLogger.LogGenericDebuggingException(e);
-			} catch (Exception e) {
-				Bot.ArchiLogger.LogGenericWarningException(e);
-			}
-		}
-
-		if (response == null) {
-			Bot.ArchiLogger.LogGenericWarning(string.Format(CultureInfo.CurrentCulture, Strings.ErrorRequestFailedTooManyTimes, WebBrowser.MaxTries));
-
-			return 0;
-		}
-
-		ulong result = response["server_time"].AsUnsignedLong();
-
-		if (result == 0) {
-			Bot.ArchiLogger.LogNullError(result);
-
-			return 0;
-		}
-
-		return result;
 	}
 
 	internal async Task<byte?> GetTradeHoldDurationForTrade(ulong tradeID) {
@@ -2174,7 +2050,9 @@ public sealed class ArchiWebHandler : IDisposable {
 
 		Initialized = false;
 
-		string sessionID = Convert.ToBase64String(Encoding.UTF8.GetBytes(steamID.ToString(CultureInfo.InvariantCulture)));
+#pragma warning disable CA1308 // False positive, we're intentionally converting this part to lowercase and it's not used for any security decisions based on the result of the normalization
+		string sessionID = Convert.ToHexString(RandomNumberGenerator.GetBytes(SessionIDLength / 2)).ToLowerInvariant();
+#pragma warning restore CA1308 // False positive, we're intentionally converting this part to lowercase and it's not used for any security decisions based on the result of the normalization
 
 		WebBrowser.CookieContainer.Add(new Cookie("sessionid", sessionID, "/", $".{SteamCheckoutURL.Host}"));
 		WebBrowser.CookieContainer.Add(new Cookie("sessionid", sessionID, "/", $".{SteamCommunityURL.Host}"));
@@ -2257,11 +2135,7 @@ public sealed class ArchiWebHandler : IDisposable {
 		return await UrlHeadWithSession(request, checkSessionPreemptively: false).ConfigureAwait(false);
 	}
 
-	internal void OnDisconnected() {
-		Initialized = false;
-
-		Utilities.InBackground(() => CachedAccessToken.Reset());
-	}
+	internal void OnDisconnected() => Initialized = false;
 
 	internal void OnVanityURLChanged(string? vanityURL = null) => VanityURL = !string.IsNullOrEmpty(vanityURL) ? vanityURL : null;
 
@@ -2386,77 +2260,6 @@ public sealed class ArchiWebHandler : IDisposable {
 		return uri.AbsolutePath.StartsWith("/login", StringComparison.OrdinalIgnoreCase) || uri.Host.Equals("lostauth", StringComparison.OrdinalIgnoreCase);
 	}
 
-	private static bool ParseItems([SuppressMessage("ReSharper", "SuggestBaseTypeForParameter")] Dictionary<(uint AppID, ulong ClassID, ulong InstanceID), InventoryResponse.Description> descriptions, IReadOnlyCollection<KeyValue> input, ICollection<Asset> output) {
-		ArgumentNullException.ThrowIfNull(descriptions);
-
-		if ((input == null) || (input.Count == 0)) {
-			throw new ArgumentNullException(nameof(input));
-		}
-
-		ArgumentNullException.ThrowIfNull(output);
-
-		foreach (KeyValue item in input) {
-			uint appID = item["appid"].AsUnsignedInteger();
-
-			if (appID == 0) {
-				ASF.ArchiLogger.LogNullError(appID);
-
-				return false;
-			}
-
-			ulong contextID = item["contextid"].AsUnsignedLong();
-
-			if (contextID == 0) {
-				ASF.ArchiLogger.LogNullError(contextID);
-
-				return false;
-			}
-
-			ulong classID = item["classid"].AsUnsignedLong();
-
-			if (classID == 0) {
-				ASF.ArchiLogger.LogNullError(classID);
-
-				return false;
-			}
-
-			ulong instanceID = item["instanceid"].AsUnsignedLong();
-
-			(uint AppID, ulong ClassID, ulong InstanceID) key = (appID, classID, instanceID);
-
-			uint amount = item["amount"].AsUnsignedInteger();
-
-			if (amount == 0) {
-				ASF.ArchiLogger.LogNullError(amount);
-
-				return false;
-			}
-
-			ulong assetID = item["assetid"].AsUnsignedLong();
-
-			bool marketable = true;
-			bool tradable = true;
-			ImmutableHashSet<Tag>? tags = null;
-			uint realAppID = 0;
-			Asset.EType type = Asset.EType.Unknown;
-			Asset.ERarity rarity = Asset.ERarity.Unknown;
-
-			if (descriptions.TryGetValue(key, out InventoryResponse.Description? description)) {
-				marketable = description.Marketable;
-				tradable = description.Tradable;
-				tags = description.Tags;
-				realAppID = description.RealAppID;
-				type = description.Type;
-				rarity = description.Rarity;
-			}
-
-			Asset steamAsset = new(appID, contextID, classID, amount, instanceID, assetID, marketable, tradable, tags, realAppID, type, rarity);
-			output.Add(steamAsset);
-		}
-
-		return true;
-	}
-
 	private async Task<bool> RefreshSession() {
 		if (!Bot.IsConnectedAndLoggedOn) {
 			return false;
@@ -2503,12 +2306,17 @@ public sealed class ArchiWebHandler : IDisposable {
 		}
 	}
 
-	private async Task<(bool Success, string? Result)> ResolveAccessToken(CancellationToken cancellationToken = default) {
-		Uri request = new(SteamStoreURL, "/pointssummary/ajaxgetasyncconfig");
+	private static void SetDescriptionsToAssets(IEnumerable<Asset> assets, [SuppressMessage("ReSharper", "SuggestBaseTypeForParameter")] Dictionary<(uint AppID, ulong ClassID, ulong InstanceID), InventoryDescription> descriptions) {
+		ArgumentNullException.ThrowIfNull(assets);
+		ArgumentNullException.ThrowIfNull(descriptions);
 
-		ObjectResponse<AccessTokenResponse>? response = await UrlGetToJsonObjectWithSession<AccessTokenResponse>(request, cancellationToken: cancellationToken).ConfigureAwait(false);
+		foreach (Asset asset in assets) {
+			(uint AppID, ulong ClassID, ulong InstanceID) key = (asset.AppID, asset.ClassID, asset.InstanceID);
 
-		return !string.IsNullOrEmpty(response?.Content?.Data.WebAPIToken) ? (true, response.Content.Data.WebAPIToken) : (false, null);
+			if (descriptions.TryGetValue(key, out InventoryDescription? description)) {
+				asset.Description = description;
+			}
+		}
 	}
 
 	private async Task<bool> UnlockParentalAccount(string parentalCode) {

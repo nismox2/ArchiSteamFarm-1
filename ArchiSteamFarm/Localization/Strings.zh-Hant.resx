@@ -53,13 +53,11 @@
 		<value>2.0</value>
 	</resheader>
 	<resheader name="reader">
-		<value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral,
-			PublicKeyToken=b77a5c561934e089
+		<value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089
 		</value>
 	</resheader>
 	<resheader name="writer">
-		<value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral,
-			PublicKeyToken=b77a5c561934e089
+		<value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089
 		</value>
 	</resheader>
 	<data name="AcceptingTrade" xml:space="preserve">
@@ -90,7 +88,8 @@
 		<comment>{0} will be replaced by function name, {1} will be replaced by exception message, {2} will be replaced by entire stack trace. Please note that this string should include newlines for formatting.</comment>
 	</data>
 	<data name="ErrorExitingWithNonZeroErrorCode" xml:space="preserve">
-		<value>以非零錯誤碼退出！</value>
+		<value>以 {0} 錯誤碼退出！</value>
+		<comment>{0} will be replaced by error code (number)</comment>
 	</data>
 	<data name="ErrorFailingRequest" xml:space="preserve">
 		<value>請求失敗︰ {0}</value>
@@ -691,24 +690,12 @@
 		<value>{0} 設定檔將會改版成最新的語法…</value>
 		<comment>{0} will be replaced with the relative path to the affected config file</comment>
 	</data>
-	<data name="WarningWeakIPCPassword" xml:space="preserve">
-		<value>您的 IPC 密碼看起來很弱。請考慮換一個強度更高的密碼來增加安全性。詳細資訊：{0}</value>
-		<comment>{0} will be replaced by additional details about the password being considered weak</comment>
-	</data>
-	<data name="WarningWeakSteamPassword" xml:space="preserve">
-		<value>你的 Steam 密碼「{0}」看起來很弱。請考慮換一個強度更高的密碼來增加安全性。詳細資訊：{1}</value>
-		<comment>{0} will be replaced by the affected bot name, {1} will be replaced by additional details about the password being considered weak</comment>
-	</data>
-	<data name="WarningWeakCryptKey" xml:space="preserve">
-		<value>您的加密金鑰看起來很弱。請考慮換一個強度更高的金鑰來增加安全性。詳細資訊：{0}</value>
-		<comment>{0} will be replaced by additional details about the encryption key being considered weak</comment>
-	</data>
 	<data name="WarningTooShortCryptKey" xml:space="preserve">
 		<value>您的加密金鑰太短。我們建議使用 {0} 位元組（字元）以上長度的金鑰。</value>
 		<comment>{0} will be replaced by the number of bytes (characters) recommended</comment>
 	</data>
 	<data name="WarningDefaultCryptKeyUsedForHashing" xml:space="preserve">
-		<value>您正在使用 {0} 設定 {1} 屬性。但您沒有提供自訂的 --cryptkey。您應提供自訂 --cryptkey 以提高安全性。</value>
+		<value>您正在使用 {0} 設定 {1} 屬性。但您沒有提供自訂的 --cryptkey。若您需要，可以提供自訂 --cryptkey 以提高安全性。</value>
 		<comment>{0} will be replaced by the name of a particular setting (e.g. "SCrypt"), {1} will be replaced by the name of the property (e.g. "IPCPassword")</comment>
 	</data>
 	<data name="WarningDefaultCryptKeyUsedForEncryption" xml:space="preserve">
@@ -729,6 +716,9 @@
 	</data>
 	<data name="ChecksumMissing" xml:space="preserve">
 		<value>遠端伺服器對我們要更新到的版本一無所知。若該版本是最近發布的，則可能出現這種情形⸺作為額外的安全措施，已立刻拒絕進行更新程序。</value>
+	</data>
+	<data name="ChecksumTimeout" xml:space="preserve">
+		<value>無法提取已下載二進制檔案的核對和⸺出於安全考量，拒絕繼續執行更新程序。</value>
 	</data>
 	<data name="ChecksumWrong" xml:space="preserve">
 		<value>遠端伺服器回覆了不同的核對和，這可能代表下載的檔案已損壞或遭到了中間人攻擊，拒絕繼續更新程序！</value>
@@ -751,5 +741,66 @@
 	<data name="WarningRegionRestrictedPackage" xml:space="preserve">
 		<value>ASF 無法執行應用程式 {0}，因為它擁有地區限制 {1}，並持續至 {2}。</value>
 		<comment>{0} will be replaced by app ID (number), {1} will be replaced by short country code (string, such as "PL"), {2} will be replaced by human-readable date (string).</comment>
+	</data>
+	<data name="WarningUnsupportedOfficialPlugins" xml:space="preserve">
+		<value>您正嘗試執行 {0} 官方外掛程式於錯誤的 ASF 版本：{1}（應為 {2}）。這代表您的行為具有嚴重錯誤，請改正您的設定值，或者，若您知道您在做什麼，請提供 --ignore-unsupported-environment 引數。</value>
+		<comment>{0} will be replaced by plugin name, {1} will be replaced by plugin's version number, {2} will be replaced by ASF's version number.</comment>
+	</data>
+	<data name="ErrorTooManyCrashes" xml:space="preserve">
+		<value>您的 ASF 最近崩潰太多次了，因此程序初始化已被停用。您需要自行調查原因、修正您的設定，然後從您的設定資料夾中刪除 ASF.crash 檔案；要是如果您知道您在做什麼，可以提供 --ignore-unsupported-environment 引數。</value>
+	</data>
+	<data name="IdlingGameNotPossiblePrivate" xml:space="preserve">
+		<value>已停用 {0}（{1}）的掛卡，因為該遊戲目前被標示為私人。若您想要 ASF 掛該遊戲，請更改它的隱私設定。</value>
+		<comment>{0} will be replaced by game's ID (number), {1} will be replaced by game's name</comment>
+	</data>
+	<data name="WarningSkipping" xml:space="preserve">
+		<value>正在跳過：{0}…</value>
+		<comment>{0} will be replaced by text value (string) of entry being skipped.</comment>
+	</data>
+	<data name="PluginUpdatesChecking" xml:space="preserve">
+		<value>正在檢查外掛程式更新…</value>
+	</data>
+	<data name="PluginUpdateChecking" xml:space="preserve">
+		<value>正在檢查外掛程式 {0} 的更新…</value>
+		<comment>{0} will be replaced by plugin name (string).</comment>
+	</data>
+	<data name="PluginUpdateNotFound" xml:space="preserve">
+		<value>外掛程式 {0} 沒有可供使用的更新：{1} ≥ {2}。</value>
+		<comment>{0} will be replaced by plugin name (string), {1} will be replaced by current plugin's version, {2} will be replaced by remote plugin's version.</comment>
+	</data>
+	<data name="PluginUpdateNewVersionAvailable" xml:space="preserve">
+		<value>外掛程式 {0} 有新版本可用！請考慮手動更新！</value>
+		<comment>{0} will be replaced by plugin name (string).</comment>
+	</data>
+	<data name="PluginUpdateFound" xml:space="preserve">
+		<value>找到外掛程式 {0} 的更新，版本 {1} 至 {2}…</value>
+		<comment>{0} will be replaced by plugin name (string), {1} will be replaced by current plugin's version, {2} will be replaced by remote plugin's version.</comment>
+	</data>
+	<data name="PluginUpdateNoAssetFound" xml:space="preserve">
+		<value>外掛程式 {0} 版本 {1} 至 {2} 的更新沒有可供使用的資源檔案，這通常代表稍後才能更新。</value>
+		<comment>{0} will be replaced by plugin name (string), {1} will be replaced by current plugin's version, {2} will be replaced by remote plugin's version.</comment>
+	</data>
+	<data name="PluginUpdateConflictingAssetsFound" xml:space="preserve">
+		<value>無法確定外掛程式 {0} 版本 {1} 至 {2} 的更新資源檔案。若檔案尚未發布完成，則可能會出現這種情形；如果此問題持續發生，您應通知外掛程式作者。</value>
+		<comment>{0} will be replaced by plugin name (string), {1} will be replaced by current plugin's version, {2} will be replaced by remote plugin's version.</comment>
+	</data>
+	<data name="PluginUpdateInProgress" xml:space="preserve">
+		<value>正在更新外掛程式 {0}…</value>
+		<comment>{0} will be replaced by plugin name (string).</comment>
+	</data>
+	<data name="PluginUpdateFinished" xml:space="preserve">
+		<value>成功更新外掛程式 {0}，變更將於 ASF 下次啟動時生效。</value>
+		<comment>{0} will be replaced by plugin name (string).</comment>
+	</data>
+	<data name="PluginUpdateEnabled" xml:space="preserve">
+		<value>外掛程式 {0}/{1} 已被登錄，並已啟用自動更新。</value>
+		<comment>{0} will be replaced by plugin name (string), {1} will be replaced by plugin assembly name (string).</comment>
+	</data>
+	<data name="PluginUpdateDisabled" xml:space="preserve">
+		<value>外掛程式 {0} ({1}) 已被停用自動更新，但它支援此功能。</value>
+		<comment>{0} will be replaced by plugin name (string), {1} will be replaced by plugin assembly name (string).</comment>
+	</data>
+	<data name="CustomPluginUpdatesEnabled" xml:space="preserve">
+		<value>自訂外掛程式已被登錄自動更新。ASF 團隊提醒您，為了您的安全，您應僅為受信任的內容啟用自動更新。若您不想啟用，您可以在 ASF 全域設定中停用外掛程式更新。</value>
 	</data>
 </root>

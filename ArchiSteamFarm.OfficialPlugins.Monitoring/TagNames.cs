@@ -1,10 +1,12 @@
-﻿//     _                _      _  ____   _                           _____
+// ----------------------------------------------------------------------------------------------
+//     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2023 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2024 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,25 +21,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-using System.Diagnostics.CodeAnalysis;
-using Newtonsoft.Json;
+namespace ArchiSteamFarm.OfficialPlugins.Monitoring;
 
-namespace ArchiSteamFarm.Steam.Data;
-
-[SuppressMessage("ReSharper", "ClassCannotBeInstantiated")]
-internal sealed class AccessTokenResponse : ResultResponse {
-	[JsonProperty("data", Required = Required.Always)]
-	internal readonly AccessTokenData Data = new();
-
-	[JsonConstructor]
-	private AccessTokenResponse() { }
-
-	[SuppressMessage("ReSharper", "ClassCannotBeInstantiated")]
-	internal sealed class AccessTokenData {
-		[JsonProperty("webapi_token", Required = Required.Always)]
-		internal readonly string WebAPIToken = "";
-
-		[JsonConstructor]
-		internal AccessTokenData() { }
-	}
+internal static class TagNames {
+	internal const string BotName = "bot";
+	internal const string BotState = "state";
+	internal const string CurrencyCode = "currency";
+	internal const string Framework = "framework";
+	internal const string OS = "operating_system";
+	internal const string Runtime = "runtime";
+	internal const string SteamID = "steamid";
+	internal const string TradeOfferResult = "result";
+	internal const string Variant = "variant";
+	internal const string Version = "version";
 }

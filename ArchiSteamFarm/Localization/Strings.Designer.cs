@@ -1119,24 +1119,6 @@ namespace ArchiSteamFarm.Localization {
             }
         }
         
-        public static string WarningWeakIPCPassword {
-            get {
-                return ResourceManager.GetString("WarningWeakIPCPassword", resourceCulture);
-            }
-        }
-        
-        public static string WarningWeakSteamPassword {
-            get {
-                return ResourceManager.GetString("WarningWeakSteamPassword", resourceCulture);
-            }
-        }
-        
-        public static string WarningWeakCryptKey {
-            get {
-                return ResourceManager.GetString("WarningWeakCryptKey", resourceCulture);
-            }
-        }
-        
         public static string WarningTooShortCryptKey {
             get {
                 return ResourceManager.GetString("WarningTooShortCryptKey", resourceCulture);
@@ -1185,6 +1167,12 @@ namespace ArchiSteamFarm.Localization {
             }
         }
         
+        public static string ChecksumTimeout {
+            get {
+                return ResourceManager.GetString("ChecksumTimeout", resourceCulture);
+            }
+        }
+        
         public static string ChecksumWrong {
             get {
                 return ResourceManager.GetString("ChecksumWrong", resourceCulture);
@@ -1218,6 +1206,102 @@ namespace ArchiSteamFarm.Localization {
         public static string WarningRegionRestrictedPackage {
             get {
                 return ResourceManager.GetString("WarningRegionRestrictedPackage", resourceCulture);
+            }
+        }
+        
+        public static string WarningUnsupportedOfficialPlugins {
+            get {
+                return ResourceManager.GetString("WarningUnsupportedOfficialPlugins", resourceCulture);
+            }
+        }
+        
+        public static string ErrorTooManyCrashes {
+            get {
+                return ResourceManager.GetString("ErrorTooManyCrashes", resourceCulture);
+            }
+        }
+        
+        public static string IdlingGameNotPossiblePrivate {
+            get {
+                return ResourceManager.GetString("IdlingGameNotPossiblePrivate", resourceCulture);
+            }
+        }
+        
+        public static string WarningSkipping {
+            get {
+                return ResourceManager.GetString("WarningSkipping", resourceCulture);
+            }
+        }
+        
+        public static string PluginUpdatesChecking {
+            get {
+                return ResourceManager.GetString("PluginUpdatesChecking", resourceCulture);
+            }
+        }
+        
+        public static string PluginUpdateChecking {
+            get {
+                return ResourceManager.GetString("PluginUpdateChecking", resourceCulture);
+            }
+        }
+        
+        public static string PluginUpdateNotFound {
+            get {
+                return ResourceManager.GetString("PluginUpdateNotFound", resourceCulture);
+            }
+        }
+        
+        public static string PluginUpdateNewVersionAvailable {
+            get {
+                return ResourceManager.GetString("PluginUpdateNewVersionAvailable", resourceCulture);
+            }
+        }
+        
+        public static string PluginUpdateFound {
+            get {
+                return ResourceManager.GetString("PluginUpdateFound", resourceCulture);
+            }
+        }
+        
+        public static string PluginUpdateNoAssetFound {
+            get {
+                return ResourceManager.GetString("PluginUpdateNoAssetFound", resourceCulture);
+            }
+        }
+        
+        public static string PluginUpdateConflictingAssetsFound {
+            get {
+                return ResourceManager.GetString("PluginUpdateConflictingAssetsFound", resourceCulture);
+            }
+        }
+        
+        public static string PluginUpdateInProgress {
+            get {
+                return ResourceManager.GetString("PluginUpdateInProgress", resourceCulture);
+            }
+        }
+        
+        public static string PluginUpdateFinished {
+            get {
+                return ResourceManager.GetString("PluginUpdateFinished", resourceCulture);
+            }
+        }
+        
+        public static string PluginUpdateEnabled {
+            get {
+                return ResourceManager.GetString("PluginUpdateEnabled", resourceCulture);
+            }
+        }
+        
+        public static string PluginUpdateDisabled {
+            get {
+                return ResourceManager.GetString("PluginUpdateDisabled", resourceCulture);
+            }
+        }
+        
+        public static string CustomPluginUpdatesEnabled {
+            get {
+                return ResourceManager.GetString("CustomPluginUpdatesEnabled", resourceCulture);
             }
         }
     }

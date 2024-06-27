@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2023 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2024 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,13 +27,14 @@ using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using ArchiSteamFarm.Collections;
 using ArchiSteamFarm.Core;
 using ArchiSteamFarm.Helpers;
 using ArchiSteamFarm.Localization;
+using ArchiSteamFarm.Plugins;
+using ArchiSteamFarm.Plugins.Interfaces;
 using ArchiSteamFarm.Steam.Data;
 using ArchiSteamFarm.Steam.Exchange;
 using ArchiSteamFarm.Steam.Storage;
@@ -76,6 +79,30 @@ public sealed class Actions : IAsyncDisposable, IDisposable {
 		if (CardsFarmerResumeTimer != null) {
 			await CardsFarmerResumeTimer.DisposeAsync().ConfigureAwait(false);
 		}
+	}
+
+	[PublicAPI]
+	public async Task<(EResult Result, IReadOnlyCollection<uint>? GrantedApps, IReadOnlyCollection<uint>? GrantedPackages)> AddFreeLicenseApp(uint appID) {
+		ArgumentOutOfRangeException.ThrowIfZero(appID);
+
+		SteamApps.FreeLicenseCallback callback;
+
+		try {
+			callback = await Bot.SteamApps.RequestFreeLicense(appID).ToLongRunningTask().ConfigureAwait(false);
+		} catch (Exception e) {
+			Bot.ArchiLogger.LogGenericWarningException(e);
+
+			return (EResult.Timeout, null, null);
+		}
+
+		return (callback.Result, callback.GrantedApps, callback.GrantedPackages);
+	}
+
+	[PublicAPI]
+	public async Task<(EResult Result, EPurchaseResultDetail PurchaseResultDetail)> AddFreeLicensePackage(uint subID) {
+		ArgumentOutOfRangeException.ThrowIfZero(subID);
+
+		return await Bot.ArchiWebHandler.AddFreeLicense(subID).ConfigureAwait(false);
 	}
 
 	[PublicAPI]
@@ -145,6 +172,7 @@ public sealed class Actions : IAsyncDisposable, IDisposable {
 		return (steamOwnerID > 0) && new SteamID(steamOwnerID).IsIndividualAccount ? steamOwnerID : 0;
 	}
 
+	[MustDisposeResource]
 	[PublicAPI]
 	public async Task<IDisposable> GetTradingLock() {
 		await TradingSemaphore.WaitAsync().ConfigureAwait(false);
@@ -242,7 +270,7 @@ public sealed class Actions : IAsyncDisposable, IDisposable {
 			// We add extra delay because OnFarmingStopped() also executes PlayGames()
 			// Despite of proper order on our end, Steam network might not respect it
 			await Task.Delay(Bot.CallbackSleep).ConfigureAwait(false);
-			await Bot.ArchiHandler.PlayGames(Array.Empty<uint>(), Bot.BotConfig.CustomGamePlayedWhileIdle).ConfigureAwait(false);
+			await Bot.ArchiHandler.PlayGames([], Bot.BotConfig.CustomGamePlayedWhileIdle).ConfigureAwait(false);
 		}
 
 		if (resumeInSeconds > 0) {
@@ -393,25 +421,23 @@ public sealed class Actions : IAsyncDisposable, IDisposable {
 			TradingScheduled = true;
 		}
 
-		await TradingSemaphore.WaitAsync().ConfigureAwait(false);
-
-		try {
+		using (await GetTradingLock().ConfigureAwait(false)) {
 			// ReSharper disable once SuspiciousLockOverSynchronizationPrimitive - this is not a mistake, we need extra synchronization, and we can re-use the semaphore object for that
 			lock (TradingSemaphore) {
 				TradingScheduled = false;
 			}
 
-			inventory = await Bot.ArchiWebHandler.GetInventoryAsync(appID: appID, contextID: contextID).Where(item => item.Tradable && filterFunction(item)).ToHashSetAsync().ConfigureAwait(false);
-		} catch (HttpRequestException e) {
-			Bot.ArchiLogger.LogGenericWarningException(e);
+			try {
+				inventory = await Bot.ArchiHandler.GetMyInventoryAsync(appID, contextID, true).Where(item => filterFunction(item)).ToHashSetAsync().ConfigureAwait(false);
+			} catch (TimeoutException e) {
+				Bot.ArchiLogger.LogGenericWarningException(e);
 
-			return (false, string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, e.Message));
-		} catch (Exception e) {
-			Bot.ArchiLogger.LogGenericException(e);
+				return (false, string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, e.Message));
+			} catch (Exception e) {
+				Bot.ArchiLogger.LogGenericException(e);
 
-			return (false, string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, e.Message));
-		} finally {
-			TradingSemaphore.Release();
+				return (false, string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, e.Message));
+			}
 		}
 
 		if (inventory.Count == 0) {
@@ -444,24 +470,49 @@ public sealed class Actions : IAsyncDisposable, IDisposable {
 	}
 
 	[PublicAPI]
-	public static async Task<(bool Success, string? Message, Version? Version)> Update(GlobalConfig.EUpdateChannel? channel = null) {
+	public static async Task<(bool Success, string? Message, Version? Version)> Update(GlobalConfig.EUpdateChannel? channel = null, bool forced = false) {
 		if (channel.HasValue && !Enum.IsDefined(channel.Value)) {
 			throw new InvalidEnumArgumentException(nameof(channel), (int) channel, typeof(GlobalConfig.EUpdateChannel));
 		}
 
-		Version? version = await ASF.Update(channel, true).ConfigureAwait(false);
+		(bool updated, Version? newVersion) = await ASF.Update(channel, true, forced).ConfigureAwait(false);
 
-		if (version == null) {
-			return (false, null, null);
+		if (updated) {
+			Utilities.InBackground(ASF.RestartOrExit);
 		}
 
-		if (SharedInfo.Version >= version) {
-			return (false, $"V{SharedInfo.Version} ≥ V{version}", version);
+		return updated ? (true, null, newVersion) : SharedInfo.Version >= newVersion ? (false, $"V{SharedInfo.Version} ≥ V{newVersion}", newVersion) : (false, null, newVersion);
+	}
+
+	[PublicAPI]
+	public static async Task<(bool Success, string? Message)> UpdatePlugins(GlobalConfig.EUpdateChannel? channel = null, IReadOnlyCollection<string>? plugins = null, bool forced = false) {
+		if (channel.HasValue && !Enum.IsDefined(channel.Value)) {
+			throw new InvalidEnumArgumentException(nameof(channel), (int) channel, typeof(GlobalConfig.EUpdateChannel));
 		}
 
-		Utilities.InBackground(ASF.RestartOrExit);
+		bool updated;
 
-		return (true, null, version);
+		if (plugins is { Count: > 0 }) {
+			HashSet<string> pluginAssemblyNames = plugins.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+			HashSet<IPluginUpdates> pluginsForUpdate = PluginsCore.GetPluginsForUpdate(pluginAssemblyNames);
+
+			if (pluginsForUpdate.Count == 0) {
+				return (false, Strings.NothingFound);
+			}
+
+			updated = await PluginsCore.UpdatePlugins(SharedInfo.Version, false, pluginsForUpdate, channel, true, forced).ConfigureAwait(false);
+		} else {
+			updated = await PluginsCore.UpdatePlugins(SharedInfo.Version, false, channel, true, forced).ConfigureAwait(false);
+		}
+
+		if (updated) {
+			Utilities.InBackground(ASF.RestartOrExit);
+		}
+
+		string message = updated ? Strings.UpdateFinished : Strings.NothingFound;
+
+		return (true, message);
 	}
 
 	internal async Task AcceptDigitalGiftCards() {

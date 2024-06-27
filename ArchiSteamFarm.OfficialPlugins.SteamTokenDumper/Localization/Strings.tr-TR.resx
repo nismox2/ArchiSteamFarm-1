@@ -53,13 +53,11 @@
 		<value>2.0</value>
 	</resheader>
 	<resheader name="reader">
-		<value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral,
-			PublicKeyToken=b77a5c561934e089
+		<value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089
 		</value>
 	</resheader>
 	<resheader name="writer">
-		<value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral,
-			PublicKeyToken=b77a5c561934e089
+		<value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089
 		</value>
 	</resheader>
 	<data name="PluginDisabledMissingBuildToken" xml:space="preserve">
@@ -168,9 +166,9 @@
 		<value>STD genel önbelleği yükleniyor...</value>
 	</data>
 	<data name="ValidatingGlobalCacheIntegrity" xml:space="preserve">
-		<value>STD genel önbellek bütünlüğünü doğrulama...</value>
+		<value>STD genel önbellek bütünlüğünü doğruluyor...</value>
 	</data>
 	<data name="GlobalCacheIntegrityValidationFailed" xml:space="preserve">
-		<value>STD genel önbellek bütünlüğü doğrulanamadı. Bu, olası bir dosya / bellek bozulmasına işaret eder, bunun yerine yeni bir örnek başlatılır.</value>
+		<value>STD genel önbellek bütünlüğü doğrulanamadı. Bu, olası bir dosya/bellek bozulmasına işaret eder, bunun yerine yeni bir örnek başlatılır.</value>
 	</data>
 </root>

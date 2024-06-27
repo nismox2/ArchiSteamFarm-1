@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2023 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2024 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,54 +23,17 @@
 
 using System;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using ArchiSteamFarm.Core;
 using ArchiSteamFarm.Localization;
+using JetBrains.Annotations;
 using SteamKit2;
 
 namespace ArchiSteamFarm.Steam.Integration;
 
-internal static class SteamUtilities {
-	internal static EResult? InterpretError(string errorText) {
-		ArgumentException.ThrowIfNullOrEmpty(errorText);
-
-		if (errorText.StartsWith("EYldRefreshAppIfNecessary", StringComparison.Ordinal)) {
-			return EResult.ServiceUnavailable;
-		}
-
-		int startIndex = errorText.LastIndexOf('(');
-
-		if (startIndex < 0) {
-			return null;
-		}
-
-		startIndex++;
-
-		int endIndex = errorText.IndexOf(')', startIndex + 1);
-
-		if (endIndex < 0) {
-			return null;
-		}
-
-		string errorCodeText = errorText[startIndex..endIndex];
-
-		if (!byte.TryParse(errorCodeText, out byte errorCode)) {
-			ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningUnknownValuePleaseReport, nameof(errorCodeText), errorCodeText));
-
-			return null;
-		}
-
-		EResult result = (EResult) errorCode;
-
-		if (!Enum.IsDefined(result)) {
-			ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningUnknownValuePleaseReport, nameof(EResult), result));
-
-			return null;
-		}
-
-		return result;
-	}
-
-	internal static string ToSteamClientLanguage(this CultureInfo cultureInfo) {
+public static class SteamUtilities {
+	[PublicAPI]
+	public static string ToSteamClientLanguage(this CultureInfo cultureInfo) {
 		ArgumentNullException.ThrowIfNull(cultureInfo);
 
 		// We're doing our best here to map provided CultureInfo to language supported by Steam
@@ -102,5 +67,61 @@ internal static class SteamUtilities {
 			"zh" => "schinese",
 			_ => "english"
 		};
+	}
+
+	internal static EResult? InterpretError(string errorText) {
+		ArgumentException.ThrowIfNullOrEmpty(errorText);
+
+		if ((errorText == "Timeout") || errorText.StartsWith("batched request timeout", StringComparison.Ordinal)) {
+			return EResult.Timeout;
+		}
+
+		if (errorText.StartsWith("Failed to get", StringComparison.Ordinal) || errorText.StartsWith("Failed to send", StringComparison.Ordinal)) {
+			return EResult.RemoteCallFailed;
+		}
+
+		string errorCodeText;
+
+		Match match = GeneratedRegexes.InventoryEResult().Match(errorText);
+
+		if (match.Success && match.Groups.TryGetValue("EResult", out Group? groupResult)) {
+			errorCodeText = groupResult.Value;
+		} else {
+			int startIndex = errorText.LastIndexOf('(');
+
+			if (startIndex < 0) {
+				ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningUnknownValuePleaseReport, nameof(errorText), errorText));
+
+				return null;
+			}
+
+			startIndex++;
+
+			int endIndex = errorText.IndexOf(')', startIndex + 1);
+
+			if (endIndex < 0) {
+				ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningUnknownValuePleaseReport, nameof(errorText), errorText));
+
+				return null;
+			}
+
+			errorCodeText = errorText[startIndex..endIndex];
+		}
+
+		if (!byte.TryParse(errorCodeText, out byte errorCode)) {
+			ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningUnknownValuePleaseReport, nameof(errorText), errorText));
+
+			return null;
+		}
+
+		EResult result = (EResult) errorCode;
+
+		if (!Enum.IsDefined(result)) {
+			ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningUnknownValuePleaseReport, nameof(errorText), errorText));
+
+			return null;
+		}
+
+		return result;
 	}
 }

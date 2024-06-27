@@ -16,18 +16,15 @@
 		<PackageReference Include="Humanizer" />
 		<PackageReference Include="JetBrains.Annotations" PrivateAssets="all" />
 		<PackageReference Include="Markdig.Signed" />
-		<PackageReference Include="Newtonsoft.Json" />
+		<PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
 		<PackageReference Include="Nito.AsyncEx.Coordination" />
 		<PackageReference Include="NLog.Web.AspNetCore" />
 		<PackageReference Include="SteamKit2" />
 		<PackageReference Include="Swashbuckle.AspNetCore" />
 		<PackageReference Include="Swashbuckle.AspNetCore.Annotations" />
-		<PackageReference Include="Swashbuckle.AspNetCore.Newtonsoft" />
 		<PackageReference Include="System.Composition" />
-		<PackageReference Include="System.IdentityModel.Tokens.Jwt" />
 		<PackageReference Include="System.Linq.Async" />
 		<PackageReference Include="System.Security.Cryptography.ProtectedData" />
-		<PackageReference Include="zxcvbn-core" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -66,7 +63,7 @@
 		</Content>
 	</ItemGroup>
 
-	<ItemGroup Condition="Exists($([System.IO.Path]::Combine('overlay', 'variant-base', $(ASFVariant.Split('-')[0]))))">
+	<ItemGroup Condition="'$(ASFVariant)' != '' AND Exists($([System.IO.Path]::Combine('overlay', 'variant-base', $(ASFVariant.Split('-')[0]))))">
 		<Content Include="overlay/variant-base/$(ASFVariant.Split('-')[0])/**/*.*">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
@@ -74,7 +71,7 @@
 		</Content>
 	</ItemGroup>
 
-	<ItemGroup Condition="Exists($([System.IO.Path]::Combine('overlay', 'variant-specific', $(ASFVariant))))">
+	<ItemGroup Condition="'$(ASFVariant)' != '' AND Exists($([System.IO.Path]::Combine('overlay', 'variant-specific', $(ASFVariant))))">
 		<Content Include="overlay/variant-specific/$(ASFVariant)/**/*.*">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>

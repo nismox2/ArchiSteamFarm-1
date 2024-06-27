@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2023 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2024 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -53,7 +55,15 @@ internal static class ArchiNet {
 
 		Uri request = new(URL, $"/Api/Checksum/{version}/{variant}");
 
-		ObjectResponse<GenericResponse<string>>? response = await ASF.WebBrowser.UrlGetToJsonObject<GenericResponse<string>>(request, cancellationToken: cancellationToken).ConfigureAwait(false);
+		ObjectResponse<GenericResponse<string>>? response;
+
+		try {
+			response = await ASF.WebBrowser.UrlGetToJsonObject<GenericResponse<string>>(request, cancellationToken: cancellationToken).ConfigureAwait(false);
+		} catch (OperationCanceledException e) {
+			ASF.ArchiLogger.LogGenericDebuggingException(e);
+
+			return null;
+		}
 
 		if (response?.Content == null) {
 			return null;
@@ -182,7 +192,15 @@ internal static class ArchiNet {
 
 		Uri request = new(URL, "/Api/BadBots");
 
-		ObjectResponse<GenericResponse<ImmutableHashSet<ulong>>>? response = await ASF.WebBrowser.UrlGetToJsonObject<GenericResponse<ImmutableHashSet<ulong>>>(request, cancellationToken: cancellationToken).ConfigureAwait(false);
+		ObjectResponse<GenericResponse<ImmutableHashSet<ulong>>>? response;
+
+		try {
+			response = await ASF.WebBrowser.UrlGetToJsonObject<GenericResponse<ImmutableHashSet<ulong>>>(request, cancellationToken: cancellationToken).ConfigureAwait(false);
+		} catch (OperationCanceledException e) {
+			ASF.ArchiLogger.LogGenericDebuggingException(e);
+
+			return (false, ASF.GlobalDatabase.CachedBadBots);
+		}
 
 		if (response?.Content?.Result == null) {
 			return (false, ASF.GlobalDatabase.CachedBadBots);

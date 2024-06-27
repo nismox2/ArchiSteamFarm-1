@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2023 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2024 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -40,14 +42,15 @@ public static class SharedInfo {
 	internal const string AssemblyName = nameof(ArchiSteamFarm);
 	internal const string DatabaseExtension = ".db";
 	internal const string DebugDirectory = "debug";
+	internal const string DefaultPluginTemplateGithubRepo = "JustArchiNET/ASF-PluginTemplate";
 	internal const string EnvironmentVariableArguments = $"{ASF}_ARGS";
 	internal const string EnvironmentVariableCryptKey = $"{ASF}_CRYPTKEY";
 	internal const string EnvironmentVariableCryptKeyFile = $"{EnvironmentVariableCryptKey}_FILE";
 	internal const string EnvironmentVariableNetworkGroup = $"{ASF}_NETWORK_GROUP";
 	internal const string EnvironmentVariablePath = $"{ASF}_PATH";
-	internal const string GithubReleaseURL = $"https://api.github.com/repos/{GithubRepo}/releases";
 	internal const string GithubRepo = $"JustArchiNET/{AssemblyName}";
 	internal const string GlobalConfigFileName = $"{ASF}{JsonConfigExtension}";
+	internal const string GlobalCrashFileName = $"{ASF}.crash";
 	internal const string GlobalDatabaseFileName = $"{ASF}{DatabaseExtension}";
 	internal const ushort InformationDelay = 10000;
 	internal const string IPCConfigExtension = ".config";
@@ -65,7 +68,8 @@ public static class SharedInfo {
 	internal const string ProjectURL = $"https://github.com/{GithubRepo}";
 	internal const ushort ShortInformationDelay = InformationDelay / 2;
 	internal const string UlongCompatibilityStringPrefix = "s_";
-	internal const string UpdateDirectory = "_old";
+	internal const string UpdateDirectoryNew = "_new";
+	internal const string UpdateDirectoryOld = "_old";
 	internal const string WebsiteDirectory = "www";
 
 	[PublicAPI]
@@ -94,7 +98,7 @@ public static class SharedInfo {
 		}
 	}
 
-	internal static string ProgramIdentifier => $"{PublicIdentifier} V{Version} ({BuildInfo.Variant}/{ModuleVersion} | {OS.Version})";
+	internal static string ProgramIdentifier => $"{PublicIdentifier} V{Version} ({BuildInfo.Variant}/{ModuleVersion:N} | {OS.Version}) in [{Directory.GetCurrentDirectory()}]";
 	internal static string PublicIdentifier => $"{AssemblyName}{(BuildInfo.IsCustomBuild ? "-custom" : PluginsCore.HasCustomPluginsLoaded ? "-modded" : "")}";
 	internal static Version Version => Assembly.GetExecutingAssembly().GetName().Version ?? throw new InvalidOperationException(nameof(Version));
 

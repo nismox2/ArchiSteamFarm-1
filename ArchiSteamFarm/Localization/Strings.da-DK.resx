@@ -53,13 +53,11 @@
 		<value>2.0</value>
 	</resheader>
 	<resheader name="reader">
-		<value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral,
-			PublicKeyToken=b77a5c561934e089
+		<value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089
 		</value>
 	</resheader>
 	<resheader name="writer">
-		<value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral,
-			PublicKeyToken=b77a5c561934e089
+		<value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089
 		</value>
 	</resheader>
 	<data name="AcceptingTrade" xml:space="preserve">
@@ -89,9 +87,7 @@ StackTrace:
 {2}</value>
 		<comment>{0} will be replaced by function name, {1} will be replaced by exception message, {2} will be replaced by entire stack trace. Please note that this string should include newlines for formatting.</comment>
 	</data>
-	<data name="ErrorExitingWithNonZeroErrorCode" xml:space="preserve">
-		<value>Lukker ned med nonzero fejlkode!</value>
-	</data>
+	
 	<data name="ErrorFailingRequest" xml:space="preserve">
 		<value>Forespørgsel fejler: {0}</value>
 		<comment>{0} will be replaced by URL of the request</comment>
@@ -656,9 +652,6 @@ Processens oppetid: {1}</value>
 	
 	
 	
-	
-	
-	
 	<data name="WarningRunningAsRoot" xml:space="preserve">
 		<value>Du forsøger at køre ASF som administrator (root). Dette medfører en betydelig sikkerhedsrisiko for din maskine, og da ASF ikke kræver root-adgang for dens drift, vi anbefaler at køre det som ikke-administrator bruger hvis det er muligt.</value>
 	</data>
@@ -667,9 +660,26 @@ Processens oppetid: {1}</value>
 	
 	
 	
+	
 	<data name="PatchingFiles" xml:space="preserve">
 		<value>Retter ASF-filer...</value>
 	</data>
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
 	
 	
 	

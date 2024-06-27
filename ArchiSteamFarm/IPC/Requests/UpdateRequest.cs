@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2023 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2024 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,8 +22,8 @@
 // limitations under the License.
 
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
 using ArchiSteamFarm.Storage;
-using Newtonsoft.Json;
 
 namespace ArchiSteamFarm.IPC.Requests;
 
@@ -30,8 +32,14 @@ public sealed class UpdateRequest {
 	/// <summary>
 	///     Target update channel. Not required, will default to UpdateChannel in GlobalConfig if not provided.
 	/// </summary>
-	[JsonProperty(Required = Required.DisallowNull)]
-	public GlobalConfig.EUpdateChannel? Channel { get; private set; }
+	[JsonInclude]
+	public GlobalConfig.EUpdateChannel? Channel { get; private init; }
+
+	/// <summary>
+	///     Forced update. This allows ASF to potentially downgrade to previous version available on selected <see cref="Channel" />, which isn't permitted normally.
+	/// </summary>
+	[JsonInclude]
+	public bool Forced { get; private init; }
 
 	[JsonConstructor]
 	private UpdateRequest() { }
