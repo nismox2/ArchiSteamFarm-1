@@ -46,8 +46,8 @@ internal sealed class SteamSaleEvent : IAsyncDisposable, IDisposable {
 		SaleEventTimer = new Timer(
 			ExploreDiscoveryQueue,
 			null,
-			TimeSpan.FromHours(0.05) + TimeSpan.FromSeconds(ASF.LoadBalancingDelay * Bot.Bots?.Count ?? 0), // Delay
-			TimeSpan.FromHours(0.05) // Period
+			TimeSpan.FromHours(0.02) + TimeSpan.FromSeconds(ASF.LoadBalancingDelay * Bot.Bots?.Count ?? 0), // Delay
+			TimeSpan.FromHours(0.02) // Period
 		);
 	}
 
